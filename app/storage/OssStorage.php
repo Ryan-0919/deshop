@@ -62,12 +62,32 @@ class OssStorage
 
     public function objectKey(string $objectPath): string
     {
+        return self::normalizeObjectPath($objectPath);
+    }
+
+    public static function normalizeObjectPath(string $objectPath): string
+    {
         $objectPath = trim($objectPath);
         if(preg_match('#^https?://#i', $objectPath))
         {
             $objectPath = (string)parse_url($objectPath, PHP_URL_PATH);
         }
-        return ltrim(str_replace('\\', '/', rawurldecode($objectPath)), '/');
+        $objectPath = str_replace('\\', '/', rawurldecode($objectPath));
+        if(preg_match('/[\x00-\x1F\x7F]/', $objectPath))
+        {
+            throw new \InvalidArgumentException('The OSS object path contains control characters.');
+        }
+
+        $segments = [];
+        foreach(explode('/', $objectPath) as $segment)
+        {
+            if($segment === '' || $segment === '.') continue;
+            if($segment === '..')
+            {
+                throw new \InvalidArgumentException('The OSS object path cannot contain parent directory segments.');
+            }
+            $segments[] = $segment;
+        }
+        return implode('/', $segments);
     }
 }
-

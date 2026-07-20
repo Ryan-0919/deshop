@@ -35,6 +35,17 @@ function assertSameValue($expected, $actual, string $message): void
     }
 }
 
+function assertThrows(callable $callback, string $message): void
+{
+    try
+    {
+        $callback();
+    } catch(InvalidArgumentException $e) {
+        return;
+    }
+    throw new RuntimeException($message);
+}
+
 function newStorage(FakeOssTransport $transport): OssStorage
 {
     return new OssStorage([
@@ -70,6 +81,11 @@ try
         'https://denshop.oss-cn-beijing.aliyuncs.com/static/upload/images/a%20b.jpg',
         $storage->publicUrl('/static/upload/images/a b.jpg'),
         'publicUrl() should build a safe public URL'
+    );
+
+    assertThrows(
+        fn() => $storage->objectKey('/static/upload/../../private-key.pem'),
+        'Parent directory segments must not be accepted as OSS object keys'
     );
 
     echo "OssStorage tests passed\n";

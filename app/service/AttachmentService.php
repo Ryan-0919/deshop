@@ -145,17 +145,6 @@ class AttachmentService
             'add_time'      => time(),
         ];
 
-        // Keep the database path stable and retain the local file as a rollback copy.
-        if(OssStorageService::IsEnabled() && !empty($params['path']))
-        {
-            try
-            {
-                OssStorageService::Upload($params['path'], $data['url']);
-            } catch(\Throwable $e) {
-                return DataReturn('OSS上传失败：'.$e->getMessage(), -1);
-            }
-        }
-
         // 附件上传前处理钩子
         $hook_name = 'plugins_service_attachment_handle_begin';
         MyEventTrigger($hook_name, [
@@ -164,6 +153,19 @@ class AttachmentService
             'params'        => $params,
             'data'          => &$data,
         ]);
+
+        // Keep the database path stable and upload after hooks finalize it.
+        $is_oss_uploaded = false;
+        if(OssStorageService::IsEnabled() && !empty($params['path']))
+        {
+            try
+            {
+                OssStorageService::Upload($params['path'], $data['url']);
+                $is_oss_uploaded = true;
+            } catch(\Throwable $e) {
+                return DataReturn('OSS上传失败：'.$e->getMessage(), -1);
+            }
+        }
 
         // 添加到数据库
         $attachment_id = Db::name('Attachment')->insertGetId($data);
@@ -189,6 +191,15 @@ class AttachmentService
         if(!empty($params['path']))
         {
             \base\FileUtil::UnlinkFile($params['path']);
+        }
+        if($is_oss_uploaded)
+        {
+            try
+            {
+                OssStorageService::Delete($data['url']);
+            } catch(\Throwable $e) {
+                error_log('ShopXO OSS rollback delete failed: '.$e->getMessage());
+            }
         }
         return DataReturn(MyLang('insert_fail'), -100);
     }
@@ -371,9 +382,6 @@ class AttachmentService
             return DataReturn(MyLang('data_no_exist_or_delete_error_tips'), -1);
         }
 
-        $ret = self::OssDeleteUrls($data);
-        if($ret !== true) return $ret;
-
         // 附件路径权限验证
         $path = substr(ROOT_PATH, 0, -1);
         foreach($data as $k=>$v)
@@ -408,6 +416,8 @@ class AttachmentService
         }
         if($ret['code'] == 0)
         {
+            self::OssDeleteUrls($data);
+
             // 附件删除成功后处理钩子
             $hook_name = 'plugins_service_attachment_delete_success';
             MyEventTrigger($hook_name, [
@@ -437,9 +447,6 @@ class AttachmentService
             $data = DB::name('Attachment')->where($where)->select()->toArray();
             if(!empty($data))
             {
-                $ret = self::OssDeleteUrls($data);
-                if($ret !== true) return $ret;
-
                 // 删除数据库数据
                 if(!DB::name('Attachment')->where($where)->delete())
                 {
@@ -456,6 +463,7 @@ class AttachmentService
                         \base\FileUtil::UnlinkFile($file);
                     }
                 }
+                self::OssDeleteUrls($data);
             }
 
             // 附件删除成功后处理钩子
@@ -494,9 +502,6 @@ class AttachmentService
         $path = substr(ROOT_PATH, 0, -1);
         if(!empty($data))
         {
-            $ret = self::OssDeleteUrls($data);
-            if($ret !== true) return $ret;
-
             // 删除数据库数据
             if(!DB::name('Attachment')->where(['id'=>array_column($data, 'id')])->delete())
             {
@@ -512,10 +517,8 @@ class AttachmentService
                     \base\FileUtil::UnlinkFile($file);
                 }
             }
+            self::OssDeleteUrls($data);
         } else {
-            $ret = self::OssDeleteUrls($url);
-            if($ret !== true) return $ret;
-
             // 不存在数据库，但是存在硬盘中则也删除
             foreach($url as $uv)
             {
@@ -525,6 +528,7 @@ class AttachmentService
                     \base\FileUtil::UnlinkFile($file);
                 }
             }
+            self::OssDeleteUrls($url);
         }
 
         // 附件删除成功后处理钩子
@@ -646,7 +650,7 @@ class AttachmentService
         return $files;
     }
 
-    private static function OssDeleteUrls(array $items)
+    private static function OssDeleteUrls(array $items): void
     {
         try
         {
@@ -655,9 +659,8 @@ class AttachmentService
                 $url = is_array($item) ? (string)($item['url'] ?? '') : (string)$item;
                 if($url !== '') OssStorageService::Delete($url);
             }
-            return true;
         } catch(\Throwable $e) {
-            return DataReturn('OSS删除失败：'.$e->getMessage(), -1);
+            error_log('ShopXO OSS delete failed: '.$e->getMessage());
         }
     }
 }

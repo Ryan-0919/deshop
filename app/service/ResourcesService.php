@@ -176,19 +176,20 @@ class ResourcesService
                     {
                         if(substr($v[$field], 0, 4) != 'http')
                         {
-                            $v[$field] = OssStorageService::IsManagedPath($v[$field]) ? OssStorageService::PublicUrl($v[$field]) : $host.$v[$field];
+                            $v[$field] = OssStorageService::IsManagedPath($v[$field]) ? OssStorageService::PublicUrl($v[$field], $host) : $host.$v[$field];
                         }
                     } else {
                         if(substr($v, 0, 4) != 'http')
                         {
-                            $v = OssStorageService::IsManagedPath($v) ? OssStorageService::PublicUrl($v) : $host.$v;
+                            $v = OssStorageService::IsManagedPath($v) ? OssStorageService::PublicUrl($v, $host) : $host.$v;
                         }
                     }
                 }
             } else {
                 if(substr($value, 0, 4) != 'http')
                 {
-                    $value = OssStorageService::IsManagedPath($value) ? OssStorageService::PublicUrl($value) : SystemBaseService::AttachmentHost().$value;
+                    $host = SystemBaseService::AttachmentHost();
+                    $value = OssStorageService::IsManagedPath($value) ? OssStorageService::PublicUrl($value, $host) : $host.$value;
                 }
             }
         }

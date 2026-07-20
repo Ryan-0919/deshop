@@ -2,6 +2,7 @@
 
 $testRoot = sys_get_temp_dir().DIRECTORY_SEPARATOR.'shopxo-oss-service-'.bin2hex(random_bytes(4)).DIRECTORY_SEPARATOR;
 define('ROOT', $testRoot);
+ini_set('error_log', ROOT.'test-error.log');
 
 function MyConfig($key)
 {
@@ -101,10 +102,14 @@ try
     $storage->failUploads = true;
     file_put_contents($localFile, 'avatar-v3-with-another-size-change');
     clearstatcache(true, $localFile);
-    assertServiceSame($relativePath, OssStorageService::PublicUrl($relativePath), 'An OSS outage should fall back to the local attachment URL');
+    assertServiceSame(
+        'https://shop.denlaw.cn'.$relativePath,
+        OssStorageService::PublicUrl($relativePath, 'https://shop.denlaw.cn'),
+        'An OSS outage should fall back to an absolute local attachment URL for API consumers'
+    );
+    assertServiceSame(false, OssStorageService::IsManagedPath('/static/upload/../../private-key.pem'), 'Path traversal must not be treated as a managed upload path');
 
     echo "OssStorageService tests passed\n";
 } finally {
     removeTestDirectory(ROOT);
 }
-

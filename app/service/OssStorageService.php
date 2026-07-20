@@ -15,8 +15,13 @@ class OssStorageService
 
     public static function IsManagedPath(string $path): bool
     {
-        $path = self::RelativePath($path);
-        return str_starts_with($path, '/static/upload/');
+        try
+        {
+            $path = self::RelativePath($path);
+            return str_starts_with($path, '/static/upload/');
+        } catch(\InvalidArgumentException $e) {
+            return false;
+        }
     }
 
     public static function Upload(string $localFile, string $relativePath): string
@@ -39,7 +44,7 @@ class OssStorageService
         }
     }
 
-    public static function PublicUrl(string $path): string
+    public static function PublicUrl(string $path, string $fallbackHost = ''): string
     {
         if(!self::IsEnabled() || !self::IsManagedPath($path))
         {
@@ -52,7 +57,7 @@ class OssStorageService
             return self::Storage()->publicUrl($path);
         } catch(\Throwable $e) {
             error_log('ShopXO OSS lazy sync failed: '.$e->getMessage());
-            return $path;
+            return $fallbackHost === '' ? $path : rtrim($fallbackHost, '/').self::RelativePath($path);
         }
     }
 
@@ -63,11 +68,7 @@ class OssStorageService
 
     public static function RelativePath(string $path): string
     {
-        if(preg_match('#^https?://#i', $path))
-        {
-            $path = (string)parse_url($path, PHP_URL_PATH);
-        }
-        return '/'.ltrim(str_replace('\\', '/', rawurldecode($path)), '/');
+        return '/'.OssStorage::normalizeObjectPath($path);
     }
 
     private static function Storage(): OssStorage
@@ -115,8 +116,12 @@ class OssStorageService
         $directory = dirname($marker);
         if((is_dir($directory) || @mkdir($directory, 0775, true)) && is_writable($directory))
         {
-            @file_put_contents($marker, self::LocalFileVersion($localFile), LOCK_EX);
+            if(@file_put_contents($marker, self::LocalFileVersion($localFile), LOCK_EX) !== false)
+            {
+                return;
+            }
         }
+        error_log('ShopXO OSS sync marker is not writable: '.$marker);
     }
 
     private static function DeleteSyncMarker(string $relativePath): void

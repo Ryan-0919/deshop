@@ -34,6 +34,11 @@ if(!is_dir($uploadRoot))
 
 $count = 0;
 $bytes = 0;
+$markerRoot = $root.'/runtime/oss-sync';
+if(!is_dir($markerRoot))
+{
+    mkdir($markerRoot, 0775, true);
+}
 $iterator = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator($uploadRoot, FilesystemIterator::SKIP_DOTS)
 );
@@ -48,6 +53,11 @@ foreach($iterator as $file)
     $localFile = $file->getPathname();
     $relativePath = '/'.ltrim(str_replace('\\', '/', substr($localFile, strlen($root.'/public'))), '/');
     $storage->put($localFile, $relativePath);
+    file_put_contents(
+        $markerRoot.'/'.sha1($relativePath).'.txt',
+        (string)$file->getMTime().':'.(string)$file->getSize(),
+        LOCK_EX
+    );
     $count++;
     $bytes += $file->getSize();
 
@@ -58,4 +68,3 @@ foreach($iterator as $file)
 }
 
 echo 'OSS sync complete: '.$count.' files, '.$bytes." bytes\n";
-
