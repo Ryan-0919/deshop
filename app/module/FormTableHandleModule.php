@@ -1053,7 +1053,8 @@ class FormTableHandleModule
                             // 数据字段
                             $field = empty($pv['field']) ? 'id' : $pv['field'];
                             $stats_fun = empty($pv['fun']) ? 'sum' : $pv['fun'];
-                            $res = $this->db->field($stats_fun.'('.$field.') as value')->find();
+                            $stats_db = clone $this->db;
+                            $res = $stats_db->removeOption('field')->removeOption('order')->removeOption('limit')->removeOption('page')->field($stats_fun.'('.$field.') as value')->find();
                             $value = (empty($res) || empty($res['value'])) ? 0 : $res['value'];
                             $stats_data[] = $pv['name'].$value.(empty($pv['unit']) ? '' : $pv['unit']);
                         }

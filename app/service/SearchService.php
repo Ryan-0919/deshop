@@ -1103,7 +1103,7 @@ class SearchService
                 self::SearchKeywordsWhereJoinType($query, $where_keywords);
             })->where(function($query) use($where_screening_price) {
                 $query->whereOr($where_screening_price);
-            })->group('gp.value')->order('gp.id desc')->field('gp.value')->limit(200)->select()->toArray();
+            })->group('gp.value')->orderRaw('MAX(gp.id) DESC')->field('gp.value')->limit(200)->select()->toArray();
 
             // 存储缓存
             MyCache($cache_key, $data, 120);
@@ -1148,7 +1148,7 @@ class SearchService
                 self::SearchKeywordsWhereJoinType($query, $where_keywords);
             })->where(function($query) use($where_screening_price) {
                 $query->whereOr($where_screening_price);
-            })->group('gsv.value')->order('gsv.id desc')->field('gsv.value')->limit(200)->select()->toArray();
+            })->group('gsv.value')->orderRaw('MAX(gsv.id) DESC')->field('gsv.value')->limit(200)->select()->toArray();
 
             // 存储缓存
             MyCache($cache_key, $data, 120);
