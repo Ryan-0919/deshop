@@ -48,12 +48,17 @@ class ResourcesService
                 $attachment_host = substr(__MY_PUBLIC_URL__, 0, -1);
             }
             $attachment_host_path = $attachment_host.'/static/';
+            $oss_public_path = OssStorageService::PublicBaseUrl().'/static/';
 
             // 根据类型处理附件地址
             switch($type)
             {
                 // 读取内容
                 case 'get':
+                    if(OssStorageService::IsEnabled())
+                    {
+                        $content = str_replace('src="/static/upload/', 'src="'.$oss_public_path.'upload/', $content);
+                    }
                     return str_replace('src="/static/', 'src="'.$attachment_host_path, $content);
                     break;
 
@@ -64,6 +69,10 @@ class ResourcesService
                         'src="'.__MY_ROOT_PUBLIC__.'static/',
                         'src="'.$attachment_host_path,
                     ];
+                    if(OssStorageService::IsEnabled())
+                    {
+                        $search[] = 'src="'.$oss_public_path;
+                    }
                     return str_replace($search, 'src="/static/', $content);
             }
         }
@@ -94,6 +103,10 @@ class ResourcesService
                 __MY_PUBLIC_URL__,
                 __MY_ROOT_PUBLIC__,
             ];
+            if(OssStorageService::IsEnabled() && OssStorageService::PublicBaseUrl() !== '')
+            {
+                array_unshift($search, OssStorageService::PublicBaseUrl().DS);
+            }
 
             // 是否数组
             if(is_array($value))
@@ -163,19 +176,19 @@ class ResourcesService
                     {
                         if(substr($v[$field], 0, 4) != 'http')
                         {
-                            $v[$field] = $host.$v[$field];
+                            $v[$field] = OssStorageService::IsManagedPath($v[$field]) ? OssStorageService::PublicUrl($v[$field]) : $host.$v[$field];
                         }
                     } else {
                         if(substr($v, 0, 4) != 'http')
                         {
-                            $v = $host.$v;
+                            $v = OssStorageService::IsManagedPath($v) ? OssStorageService::PublicUrl($v) : $host.$v;
                         }
                     }
                 }
             } else {
                 if(substr($value, 0, 4) != 'http')
                 {
-                    $value = SystemBaseService::AttachmentHost().$value;
+                    $value = OssStorageService::IsManagedPath($value) ? OssStorageService::PublicUrl($value) : SystemBaseService::AttachmentHost().$value;
                 }
             }
         }
