@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `sxo_wangdian_sync_log` (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
+  `business_type` varchar(32) NOT NULL DEFAULT '' COMMENT 'order_push, logistics or inventory',
+  `business_key` varchar(120) NOT NULL DEFAULT '' COMMENT 'Idempotency key',
+  `order_id` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'ShopXO order id when applicable',
+  `status` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT '0 pending, 1 success, 2 failed',
+  `attempts` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Attempt count',
+  `request_payload` mediumtext NULL COMMENT 'Redacted request summary',
+  `response_payload` mediumtext NULL COMMENT 'Redacted response summary',
+  `last_error` varchar(1000) NOT NULL DEFAULT '' COMMENT 'Last error',
+  `next_retry_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Next retry Unix timestamp',
+  `last_attempt_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Last attempt Unix timestamp',
+  `synced_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Successful sync Unix timestamp',
+  `add_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Created Unix timestamp',
+  `upd_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Updated Unix timestamp',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `business` (`business_type`, `business_key`),
+  KEY `status_retry` (`status`, `next_retry_time`),
+  KEY `order_id` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Wangdiantong synchronization log';

@@ -16,6 +16,7 @@ use app\service\BuyService;
 use app\service\MessageService;
 use app\service\IntegralService;
 use app\service\OtherHandleService;
+use app\integration\wangdian\WangDianSyncService;
 
 /**
  * 定时任务服务层
@@ -26,6 +27,46 @@ use app\service\OtherHandleService;
  */
 class CrontabService
 {
+    /**
+     * Push paid ShopXO orders to Wangdiantong ERP.
+     */
+    public static function WangDianOrderPush($params = [])
+    {
+        return self::WangDianSyncRun('pushOrders');
+    }
+
+    /**
+     * Pull shipment details from Wangdiantong ERP.
+     */
+    public static function WangDianLogisticsSync($params = [])
+    {
+        return self::WangDianSyncRun('syncLogistics');
+    }
+
+    /**
+     * Pull current sellable inventory from Wangdiantong ERP.
+     */
+    public static function WangDianInventorySync($params = [])
+    {
+        return self::WangDianSyncRun('syncInventory');
+    }
+
+    private static function WangDianSyncRun(string $method)
+    {
+        try {
+            $service = new WangDianSyncService((array)config('wangdian'));
+            return DataReturn(MyLang('operate_success'), 0, $service->{$method}());
+        } catch(\Throwable $e) {
+            return DataReturn($e->getMessage(), -1, [
+                'enabled'=>true,
+                'success'=>0,
+                'failed'=>1,
+                'skipped'=>0,
+                'message'=>$e->getMessage(),
+            ]);
+        }
+    }
+
     /**
      * 订单自动关闭
      * @author   Devil

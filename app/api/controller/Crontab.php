@@ -22,6 +22,44 @@ use app\service\CrontabService;
 class Crontab extends Common
 {
     /**
+     * Push paid orders to Wangdiantong ERP.
+     */
+    public function WangDianOrderPush()
+    {
+        return $this->WangDianResult(CrontabService::WangDianOrderPush());
+    }
+
+    /**
+     * Pull shipment details from Wangdiantong ERP.
+     */
+    public function WangDianLogisticsSync()
+    {
+        return $this->WangDianResult(CrontabService::WangDianLogisticsSync());
+    }
+
+    /**
+     * Pull inventory from Wangdiantong ERP.
+     */
+    public function WangDianInventorySync()
+    {
+        return $this->WangDianResult(CrontabService::WangDianInventorySync());
+    }
+
+    private function WangDianResult(array $result): string
+    {
+        $data = (array)($result['data'] ?? []);
+        if((int)($result['code'] ?? -1) !== 0)
+        {
+            return (string)($result['msg'] ?? 'Wangdiantong synchronization failed.');
+        }
+        return 'enabled:'.(!empty($data['enabled']) ? '1' : '0')
+            .', success:'.(int)($data['success'] ?? 0)
+            .', fail:'.(int)($data['failed'] ?? 0)
+            .', skipped:'.(int)($data['skipped'] ?? 0)
+            .(empty($data['message']) ? '' : ', message:'.$data['message']);
+    }
+
+    /**
      * 订单关闭
      * @author   Devil
      * @blog     http://gong.gg/
