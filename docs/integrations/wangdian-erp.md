@@ -208,13 +208,66 @@ enabled:1, success:3, fail:0, skipped:0
 - 旺店通短暂不可用不会影响商城支付，并能自动重试。
 - 所有密钥仅来自环境变量，Git 和日志中不存在明文密钥。
 
-## 12. 第二阶段
+## 12. 售后退款与退货
 
-第一阶段稳定后再实现：
+第二阶段已接入以下官方接口：
 
-- 发货前取消和退款状态更新；
-- 发货后退货退款；
-- 换货及换出订单；
+| 业务 | 接口 | 方向 | 单批限制 |
+| --- | --- | --- | --- |
+| 创建或更新退款/退货单 | `sales_refund_push.php` | ShopXO -> 旺店通 | 10 单 |
+| 查询 ERP 退换单处理状态 | `refund_query.php` | ShopXO -> 旺店通 | 每页 40 单 |
+
+ShopXO 售后单号 `id` 映射为稳定的旺店通平台退款单号 `SHOPXO-AS-{id}`，订单明细编号继续使用订单推送阶段的 `{order_no}-{order_detail_id}`。只有原订单已经成功推送至旺店通的售后单才会进入售后推送任务。
+
+类型映射：
+
+- 未发货“仅退款”映射为旺店通 `type=1`；
+- 已发货“仅退款”映射为旺店通 `type=2`；
+- “退货退款”映射为旺店通 `type=3`。
+
+状态映射：
+
+| ShopXO 状态 | 旺店通状态 |
+| --- | --- |
+| 待确认、仅退款待审核 | `wait_seller_agree` |
+| 待退货 | `goods_returning` |
+| 已填写退货物流、待审核 | `goods_receiving` |
+| 已完成 | `success` |
+| 已拒绝 | `seller_refuse` |
+| 已取消 | `closed` |
+
+新增定时任务：
+
+- 售后推送：`/api/crontab/wangdianaftersalepush`，建议每 5 分钟；
+- 售后状态同步：`/api/crontab/wangdianaftersalesync`，建议每 5 分钟。
+
+新增配置：
+
+```dotenv
+WANGDIAN_AFTERSALE_BATCH_SIZE=10
+WANGDIAN_AFTERSALE_QUERY_LOOKBACK=604800
+WANGDIAN_AFTERSALE_AUTO_PROCESS=false
+WANGDIAN_AFTERSALE_REFUNDMENT=0
+```
+
+`WANGDIAN_AFTERSALE_QUERY_LOOKBACK` 单位为秒，默认查询 ERP 最近 7 天内修改过的退换单，最大 30 天。旺店通每次状态变化都会更新 `modified`，因此长期退货在发生新状态时仍会被获取。
+
+`WANGDIAN_AFTERSALE_AUTO_PROCESS` 默认关闭。关闭时任务会验证 ERP 退换单与 ShopXO 售后单的关联并记录状态，但不会确认、拒绝、取消或执行退款。关联验证要求存在成功的售后出站推送日志，并且 ERP 返回的 `tid`、明细 `oid`、售后类型和退款金额与 ShopXO 售后单完全一致。任一项不一致都不会执行本地操作。联调验证状态映射后才能在生产环境设为 `true`。开启后：
+
+- ERP 取消映射为 ShopXO 售后取消；
+- ERP 拒绝在 ShopXO 当前状态允许时映射为售后拒绝；
+- ERP 同意退货时确认 ShopXO 退货申请；
+- ERP 完成且 ShopXO 已处于待审核状态时，调用 ShopXO 原有 `AftersaleAudit()` 完成退款。
+
+`WANGDIAN_AFTERSALE_REFUNDMENT` 使用 ShopXO 原有退款方式：`0` 原路退回、`1` 退到钱包、`2` 手工处理。生产环境自动处理建议使用 `0`，上线前必须用测试订单完成一次 ERP 收货到微信退款的完整验证。
+
+自动处理关闭时使用 `observe` 幂等键，开启后使用 `apply` 幂等键，因此观察过的 ERP 状态不会阻止后续正式处理。单条售后失败不影响同批其他记录，并继续沿用通用指数退避重试日志。
+
+`refund_query.php` 会按照接口返回的 `total_count` 持续翻页，直到当前时间窗口全部读取完成，不使用固定页数上限，避免高峰期后续记录长期无法同步。
+
+## 13. 尚未实现
+
+- 换货及换出订单：当前 ShopXO 只有“仅退款”和“退货退款”，没有独立换货类型、换出 SKU 和收货信息模型；需要先扩展产品和售后数据模型，不能直接复用退货退款。
 - 拆单、多包裹发货；
 - 后台同步状态和手工重试页面；
 - 日志归档与告警。

@@ -35,18 +35,32 @@ final class FakeWangDianClient implements WangDianClientInterface
 final class FakeWangDianStore implements WangDianStoreInterface
 {
     public array $orders = [];
+    public array $aftersales = [];
     public array $successes = [];
     public array $failures = [];
     public array $logistics = [];
     public array $inventory = [];
+    public array $aftersaleStatuses = [];
 
     public function pendingOrders(int $syncFrom, int $limit, int $now): array
     {
         return array_slice($this->orders, 0, $limit);
     }
 
+    public function pendingAftersales(int $limit, int $now): array
+    {
+        return array_slice($this->aftersales, 0, $limit);
+    }
+
     public function startAttempt(string $businessType, string $businessKey, int $orderId, array $requestSummary, int $now): bool
     {
+        foreach($this->successes as $success)
+        {
+            if($success[0] === $businessType && $success[1] === $businessKey)
+            {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -85,6 +99,16 @@ final class FakeWangDianStore implements WangDianStoreInterface
         }
         return 34;
     }
+
+    public function applyAftersaleStatus(array $record, bool $autoProcess, int $refundment): int
+    {
+        $this->aftersaleStatuses[] = [$record, $autoProcess, $refundment];
+        if(($record['src_no'] ?? '') === 'SHOPXO-AS-99')
+        {
+            throw new RuntimeException('ShopXO aftersale 99 was not found.');
+        }
+        return 12;
+    }
 }
 
 function wangDianTestConfig(): array
@@ -101,6 +125,10 @@ function wangDianTestConfig(): array
         'order_batch_size' => 50,
         'logistics_batch_size' => 100,
         'inventory_batch_size' => 100,
+        'aftersale_batch_size' => 10,
+        'aftersale_query_lookback' => 604800,
+        'aftersale_auto_process' => false,
+        'aftersale_refundment' => 0,
         'express_map' => ['YUNDA'=>6],
     ];
 }
@@ -194,5 +222,153 @@ $result = $service->pushOrders();
 
 assertWangDianSyncSame(1, $result['failed'], 'A top-level ERP rejection must fail the attempted order');
 assertWangDianSyncSame(1001, $store->failures[0][3]['code'] ?? null, 'A top-level ERP rejection must retain its response summary');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$store->aftersales = [
+    [
+        'key'=>'12:2:1700000200',
+        'aftersale'=>[
+            'id'=>12, 'type'=>1, 'status'=>2, 'price'=>'9.50', 'number'=>1,
+            'reason'=>'Return', 'express_name'=>'Yunda', 'express_number'=>'YD12',
+            'apply_time'=>1700000000,
+        ],
+        'order'=>['id'=>1, 'order_no'=>'O1', 'user_id'=>9, 'delivery_time'=>1700000100],
+        'detail'=>['id'=>10, 'buy_number'=>1],
+    ],
+    [
+        'key'=>'13:0:1700000201',
+        'aftersale'=>[
+            'id'=>13, 'type'=>1, 'status'=>0, 'price'=>'9.50', 'number'=>0,
+            'reason'=>'Invalid return', 'apply_time'=>1700000000,
+        ],
+        'order'=>['id'=>2, 'order_no'=>'O2', 'user_id'=>9, 'delivery_time'=>1700000100],
+        'detail'=>['id'=>20, 'buy_number'=>1],
+    ],
+];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK', 'new_count'=>1, 'chg_count'=>0];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+
+assertWangDianSyncSame(1, $result['success'], 'A valid aftersale should be pushed to ERP');
+assertWangDianSyncSame(1, $result['failed'], 'An invalid aftersale must not block the rest of the batch');
+assertWangDianSyncSame('sales_refund_push.php', $client->requests[0]['endpoint'] ?? null, 'Aftersales must use the refund push endpoint');
+$refundList = json_decode($client->requests[0]['params']['api_refund_list'] ?? '', true);
+assertWangDianSyncSame(['SHOPXO-AS-12'], array_column($refundList, 'refund_no'), 'Only locally valid aftersales should be sent');
+assertWangDianSyncSame([['aftersale_push', '12:2:1700000200']], $store->successes, 'The accepted aftersale state must be idempotently marked successful');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$store->aftersales = [[
+    'key'=>'14:2:1700000202',
+    'aftersale'=>[
+        'id'=>14, 'type'=>0, 'status'=>2, 'price'=>'1.00', 'number'=>0,
+        'reason'=>'Refund', 'apply_time'=>1700000000,
+    ],
+    'order'=>['id'=>3, 'order_no'=>'O3', 'user_id'=>9, 'delivery_time'=>0],
+    'detail'=>['id'=>30, 'buy_number'=>1],
+]];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK', 'new_count'=>0, 'chg_count'=>0];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+assertWangDianSyncSame(0, $result['success'], 'A refund omitted by ERP must not be marked successful');
+assertWangDianSyncSame(1, $result['failed'], 'A refund-count mismatch must remain retryable');
+assertWangDianSyncSame('aftersale_push', $store->failures[0][0] ?? null, 'A count mismatch must be recorded against the refund push');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+foreach([15, 16] as $id)
+{
+    $store->aftersales[] = [
+        'key'=>$id.':2:1700000203',
+        'aftersale'=>['id'=>$id, 'type'=>0, 'status'=>2, 'price'=>'1.00', 'number'=>0, 'reason'=>'Refund', 'apply_time'=>1700000000],
+        'order'=>['id'=>$id, 'order_no'=>'O'.$id, 'user_id'=>9, 'delivery_time'=>0],
+        'detail'=>['id'=>$id * 10, 'buy_number'=>1],
+    ];
+}
+$client->responses['sales_refund_push.php'][] = [
+    'code'=>0,
+    'message'=>'OK',
+    'errors'=>[['refund_no'=>'SHOPXO-AS-16', 'error'=>'ERP rejected this aftersale.']],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+assertWangDianSyncSame(1, $result['success'], 'An accepted aftersale in a partially rejected batch must succeed');
+assertWangDianSyncSame(1, $result['failed'], 'A per-aftersale ERP error must remain retryable');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+foreach([17, 18] as $id)
+{
+    $store->aftersales[] = [
+        'key'=>$id.':2:1700000204',
+        'aftersale'=>['id'=>$id, 'type'=>0, 'status'=>2, 'price'=>'1.00', 'number'=>0, 'reason'=>'Refund', 'apply_time'=>1700000000],
+        'order'=>['id'=>$id, 'order_no'=>'O'.$id, 'user_id'=>9, 'delivery_time'=>0],
+        'detail'=>['id'=>$id * 10, 'buy_number'=>1],
+    ];
+}
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'Partial', 'new_count'=>1, 'chg_count'=>0];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK', 'new_count'=>0, 'chg_count'=>1];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'Rejected', 'new_count'=>0, 'chg_count'=>0];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+assertWangDianSyncSame(1, $result['success'], 'A count-only partial response must isolate the accepted aftersale');
+assertWangDianSyncSame(1, $result['failed'], 'A count-only partial response must leave only the rejected aftersale retryable');
+assertWangDianSyncSame(3, count($client->requests), 'An ambiguous batch response must fall back to one request per aftersale');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['refund_query.php'][] = [
+    'code'=>0,
+    'total_count'=>3,
+    'refunds'=>[
+        ['refund_id'=>'501', 'src_no'=>'SHOPXO-AS-12', 'process_status'=>90, 'modified'=>'2026-07-25 10:00:00'],
+        ['refund_id'=>'502', 'src_no'=>'SHOPXO-AS-99', 'process_status'=>40, 'modified'=>'2026-07-25 10:00:01'],
+        ['refund_id'=>'503', 'src_no'=>'', 'api_outer_no'=>'SHOPXO-AS-13', 'process_status'=>30, 'modified'=>'2026-07-25 10:00:02'],
+    ],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+
+assertWangDianSyncSame(2, $result['success'], 'Valid ERP aftersale states should be applied locally');
+assertWangDianSyncSame(1, $result['failed'], 'One invalid ERP aftersale state must not block the page');
+assertWangDianSyncSame('SHOPXO-AS-13', $store->aftersaleStatuses[2][0]['api_outer_no'] ?? null, 'api_outer_no must be used when src_no is empty');
+assertWangDianSyncSame(false, $store->aftersaleStatuses[0][1] ?? null, 'Automatic local aftersale actions must default to disabled');
+assertWangDianSyncSame(0, $store->aftersaleStatuses[0][2] ?? null, 'The configured refund method must be passed to local processing');
+assertWangDianSyncSame('refund_query.php', $client->requests[0]['endpoint'] ?? null, 'ERP aftersale states must use refund_query');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$sameState = [
+    'code'=>0,
+    'total_count'=>1,
+    'refunds'=>[['refund_id'=>'504', 'src_no'=>'SHOPXO-AS-14', 'process_status'=>30, 'modified'=>'2026-07-25 10:01:00']],
+];
+$client->responses['refund_query.php'][] = $sameState;
+$client->responses['refund_query.php'][] = $sameState;
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$service->syncAftersales();
+$secondResult = $service->syncAftersales();
+assertWangDianSyncSame(0, $secondResult['success'], 'A previously successful ERP state must not be applied again');
+assertWangDianSyncSame(1, $secondResult['skipped'], 'A previously successful ERP state must be reported as skipped');
+assertWangDianSyncSame(1, count($store->aftersaleStatuses), 'A stable ERP state must be applied only once across task runs');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$pageOne = [];
+for($id = 1; $id <= 40; $id++)
+{
+    $pageOne[] = ['refund_id'=>(string)$id, 'src_no'=>'SHOPXO-AS-'.$id, 'process_status'=>30, 'modified'=>'2026-07-25 11:00:00'];
+}
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>41, 'refunds'=>$pageOne];
+$client->responses['refund_query.php'][] = ['code'=>0, 'refunds'=>[
+    ['refund_id'=>'41', 'src_no'=>'SHOPXO-AS-41', 'process_status'=>30, 'modified'=>'2026-07-25 11:00:01'],
+]];
+$config = wangDianTestConfig();
+$config['aftersale_query_max_pages'] = 1;
+$service = new WangDianSyncService($config, $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(41, $result['success'], 'Refund pagination must drain the complete ERP result set');
+assertWangDianSyncSame(2, count($client->requests), 'Refund pagination must continue beyond a configured first-page cap');
 
 echo "WangDianSyncService tests passed\n";

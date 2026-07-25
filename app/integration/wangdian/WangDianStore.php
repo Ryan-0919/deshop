@@ -2,6 +2,7 @@
 namespace app\integration\wangdian;
 
 use app\service\GoodsService;
+use app\service\OrderAftersaleService;
 use app\service\OrderService;
 use think\facade\Db;
 
@@ -76,12 +77,66 @@ final class WangDianStore implements WangDianStoreInterface
         return $result;
     }
 
+    public function pendingAftersales(int $limit, int $now): array
+    {
+        $eventTime = "CASE oa.status"
+            ." WHEN 0 THEN oa.apply_time"
+            ." WHEN 1 THEN oa.confirm_time"
+            ." WHEN 2 THEN IF(oa.type=1, oa.delivery_time, oa.apply_time)"
+            ." WHEN 3 THEN oa.audit_time"
+            ." WHEN 4 THEN oa.audit_time"
+            ." WHEN 5 THEN oa.cancel_time"
+            ." ELSE oa.upd_time END";
+        $syncKey = "CONCAT(oa.id, ':', oa.status, ':', ".$eventTime.")";
+        $rows = Db::name('OrderAftersale')->alias('oa')
+            ->join('order o', 'o.id=oa.order_id')
+            ->join('order_detail od', 'od.id=oa.order_detail_id')
+            ->join('wangdian_sync_log opl', "opl.business_type='order_push' AND opl.business_key=CAST(o.id AS CHAR) AND opl.status=1")
+            ->leftJoin('wangdian_sync_log wsl', "wsl.business_type='aftersale_push' AND wsl.business_key=".$syncKey)
+            ->where([
+                ['o.order_model', '=', 0],
+                ['oa.type', 'in', [0, 1]],
+                ['oa.status', 'between', [0, 5]],
+            ])
+            ->whereRaw('(wsl.id IS NULL OR (wsl.status IN (0,2) AND wsl.next_retry_time <= '.(int)$now.'))')
+            ->field('oa.*,'.$syncKey.' AS sync_key,o.id AS shopxo_order_id,o.order_no AS shopxo_order_no,o.user_id AS shopxo_user_id,o.delivery_time AS shopxo_delivery_time,od.id AS shopxo_detail_id,od.buy_number AS shopxo_buy_number')
+            ->order('oa.id asc')
+            ->limit($limit)
+            ->select()
+            ->toArray();
+
+        $result = [];
+        foreach($rows as $row)
+        {
+            $result[] = [
+                'key'=>(string)$row['sync_key'],
+                'aftersale'=>$row,
+                'order'=>[
+                    'id'=>(int)$row['shopxo_order_id'],
+                    'order_no'=>(string)$row['shopxo_order_no'],
+                    'user_id'=>(int)$row['shopxo_user_id'],
+                    'delivery_time'=>(int)$row['shopxo_delivery_time'],
+                ],
+                'detail'=>[
+                    'id'=>(int)$row['shopxo_detail_id'],
+                    'buy_number'=>(int)$row['shopxo_buy_number'],
+                ],
+            ];
+        }
+        return $result;
+    }
+
     public function startAttempt(string $businessType, string $businessKey, int $orderId, array $requestSummary, int $now): bool
     {
         Db::startTrans();
         try {
             $where = ['business_type'=>$businessType, 'business_key'=>$businessKey];
             $log = Db::name('WangdianSyncLog')->where($where)->lock(true)->find();
+            if(!empty($log) && (int)$log['status'] === 1)
+            {
+                Db::commit();
+                return false;
+            }
             if(!empty($log) && in_array((int)$log['status'], [0,2], true) && (int)$log['next_retry_time'] > $now)
             {
                 Db::commit();
@@ -263,6 +318,104 @@ final class WangDianStore implements WangDianStoreInterface
         }
     }
 
+    public function applyAftersaleStatus(array $record, bool $autoProcess, int $refundment): int
+    {
+        $sourceNo = trim((string)($record['src_no'] ?? ''));
+        if($sourceNo === '')
+        {
+            $sourceNo = trim((string)($record['api_outer_no'] ?? ''));
+        }
+        if(preg_match('/^SHOPXO-AS-(\d+)$/', $sourceNo, $matches) !== 1)
+        {
+            throw new \InvalidArgumentException('The ERP refund is not linked to a ShopXO aftersale.');
+        }
+        $aftersaleId = (int)$matches[1];
+        $aftersale = Db::name('OrderAftersale')->where(['id'=>$aftersaleId])->find();
+        if(empty($aftersale))
+        {
+            throw new \RuntimeException('ShopXO aftersale '.$aftersaleId.' was not found.');
+        }
+        $order = Db::name('Order')->where(['id'=>$aftersale['order_id']])->field('id,delivery_time')->find();
+        if(empty($order))
+        {
+            throw new \RuntimeException('ShopXO order for aftersale '.$aftersaleId.' was not found.');
+        }
+        $wasPushed = (int)Db::name('WangdianSyncLog')->where([
+            ['business_type', '=', 'aftersale_push'],
+            ['business_key', 'like', $aftersaleId.':%'],
+            ['status', '=', 1],
+        ])->count() > 0;
+        if(!$wasPushed)
+        {
+            throw new \RuntimeException('ShopXO aftersale '.$aftersaleId.' has no successful Wangdiantong push record.');
+        }
+        WangDianAftersaleMapper::assertRemoteLink($record, $aftersale, $order);
+        if(!$autoProcess)
+        {
+            return $aftersaleId;
+        }
+
+        $processStatus = (int)($record['process_status'] ?? 0);
+        $localStatus = (int)$aftersale['status'];
+        if($processStatus === 10)
+        {
+            if(!in_array($localStatus, [3, 5], true))
+            {
+                $this->assertAftersaleOperation(OrderAftersaleService::AftersaleCancel([
+                    'id'=>$aftersaleId,
+                    'creator'=>0,
+                    'creator_name'=>'Wangdiantong ERP',
+                ]));
+            }
+            return $aftersaleId;
+        }
+        if($processStatus === 40)
+        {
+            if(in_array($localStatus, [0, 2], true))
+            {
+                $reason = trim((string)($record['refund_reason'] ?? $record['remark'] ?? ''));
+                $this->assertAftersaleOperation(OrderAftersaleService::AftersaleRefuse([
+                    'id'=>$aftersaleId,
+                    'refuse_reason'=>$reason === '' ? '旺店通 ERP 拒绝售后申请' : $this->truncate($reason, 230),
+                    'creator'=>0,
+                    'creator_name'=>'Wangdiantong ERP',
+                ]));
+            } elseif(!in_array($localStatus, [4, 5], true)) {
+                throw new \RuntimeException('ERP rejected aftersale '.$aftersaleId.', but its ShopXO status requires manual handling.');
+            }
+            return $aftersaleId;
+        }
+
+        if($processStatus === 90)
+        {
+            if($localStatus === 2)
+            {
+                $this->assertAftersaleOperation(OrderAftersaleService::AftersaleAudit([
+                    'id'=>$aftersaleId,
+                    'refundment'=>$refundment,
+                    'is_under_line_use_manual'=>1,
+                    'creator'=>0,
+                    'creator_name'=>'Wangdiantong ERP',
+                ]));
+            } elseif($localStatus !== 3) {
+                throw new \RuntimeException('ERP completed aftersale '.$aftersaleId.', but ShopXO is not ready to refund it.');
+            }
+            return $aftersaleId;
+        }
+
+        $approvedStatuses = [30, 50, 52, 54, 55, 56, 58, 59, 60, 63, 64, 65, 69, 70, 71, 80];
+        if((int)$aftersale['type'] === 1 && $localStatus === 0 && in_array($processStatus, $approvedStatuses, true))
+        {
+            $this->assertAftersaleOperation(OrderAftersaleService::AftersaleConfirm([
+                'id'=>$aftersaleId,
+                'creator'=>0,
+                'creator_name'=>'Wangdiantong ERP',
+            ]));
+            $localStatus = 1;
+        }
+        return $aftersaleId;
+    }
+
     private function updateWarehouseInventory(int $warehouseId, int $goodsId, int $specBaseId, int $inventory): void
     {
         $warehouseGoods = Db::name('WarehouseGoods')->where([
@@ -314,6 +467,14 @@ final class WangDianStore implements WangDianStoreInterface
     {
         $encoded = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         return $this->truncate($encoded === false ? '{}' : $encoded, 32000);
+    }
+
+    private function assertAftersaleOperation(array $result): void
+    {
+        if((int)($result['code'] ?? -1) !== 0)
+        {
+            throw new \RuntimeException((string)($result['msg'] ?? 'ShopXO aftersale operation failed.'));
+        }
     }
 
     private function orderSkuValidationError(array $details, array $skuMatches): string

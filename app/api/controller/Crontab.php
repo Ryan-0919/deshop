@@ -45,6 +45,22 @@ class Crontab extends Common
         return $this->WangDianResult(CrontabService::WangDianInventorySync());
     }
 
+    /**
+     * Push refund and return changes to Wangdiantong ERP.
+     */
+    public function WangDianAftersalePush()
+    {
+        return $this->WangDianResult(CrontabService::WangDianAftersalePush());
+    }
+
+    /**
+     * Pull refund and return processing states from Wangdiantong ERP.
+     */
+    public function WangDianAftersaleSync()
+    {
+        return $this->WangDianResult(CrontabService::WangDianAftersaleSync());
+    }
+
     private function WangDianResult(array $result): string
     {
         $data = (array)($result['data'] ?? []);

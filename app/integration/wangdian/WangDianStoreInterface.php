@@ -5,6 +5,8 @@ interface WangDianStoreInterface
 {
     public function pendingOrders(int $syncFrom, int $limit, int $now): array;
 
+    public function pendingAftersales(int $limit, int $now): array;
+
     public function startAttempt(string $businessType, string $businessKey, int $orderId, array $requestSummary, int $now): bool;
 
     public function markSuccess(string $businessType, string $businessKey, array $responseSummary, int $now): void;
@@ -20,4 +22,6 @@ interface WangDianStoreInterface
     public function applyLogistics(array $record, array $expressMap): int;
 
     public function applyInventory(array $record, int $warehouseId): int;
+
+    public function applyAftersaleStatus(array $record, bool $autoProcess, int $refundment): int;
 }

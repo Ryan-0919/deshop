@@ -51,6 +51,22 @@ class CrontabService
         return self::WangDianSyncRun('syncInventory');
     }
 
+    /**
+     * Push ShopXO refund and return state changes to Wangdiantong ERP.
+     */
+    public static function WangDianAftersalePush($params = [])
+    {
+        return self::WangDianSyncRun('pushAftersales');
+    }
+
+    /**
+     * Pull Wangdiantong refund and return processing states.
+     */
+    public static function WangDianAftersaleSync($params = [])
+    {
+        return self::WangDianSyncRun('syncAftersales');
+    }
+
     private static function WangDianSyncRun(string $method)
     {
         try {
