@@ -1,6 +1,8 @@
 <?php
 namespace app\integration\wangdian;
 
+use app\service\RefundRequestNoService;
+
 final class WangDianAftersaleMapper
 {
     private const STATUS_MAP = [
@@ -50,7 +52,7 @@ final class WangDianAftersaleMapper
             'platform_id' => 127,
             'shop_no' => $shopNo,
             'tid' => $orderNo,
-            'refund_no' => 'SHOPXO-AS-'.$aftersaleId,
+            'refund_no' => RefundRequestNoService::ForAftersale($aftersale),
             'type' => $type === 1 ? 3 : ((int)($order['delivery_time'] ?? 0) > 0 ? 2 : 1),
             'status' => $mappedStatus,
             'refund_fee' => self::formatMoney($aftersale['price'] ?? 0),
@@ -78,7 +80,7 @@ final class WangDianAftersaleMapper
         return $result;
     }
 
-    public static function assertRemoteLink(array $record, array $aftersale, array $order): void
+    public static function assertRemoteLink(array $record, array $aftersale, array $order, array $detail): void
     {
         $orderNo = trim((string)($aftersale['order_no'] ?? ''));
         $detailId = (int)($aftersale['order_detail_id'] ?? 0);
@@ -102,28 +104,38 @@ final class WangDianAftersaleMapper
         {
             throw new \RuntimeException('ERP refund amount does not match the ShopXO aftersale.');
         }
+        if((int)($record['process_status'] ?? 0) === 90
+            && (!array_key_exists('actual_refund_amount', $record)
+                || self::moneyToCents($record['actual_refund_amount']) !== self::moneyToCents($aftersale['price'] ?? 0)))
+        {
+            throw new \RuntimeException('ERP actual refund amount does not match the completed ShopXO aftersale.');
+        }
 
         $lines = $record['refund_order_list'] ?? null;
         if(!is_array($lines) || empty($lines))
         {
             throw new \RuntimeException('ERP refund does not contain order-detail linkage.');
         }
-        $oids = [];
-        foreach($lines as $line)
-        {
-            if(is_array($line))
-            {
-                $oid = trim((string)($line['oid'] ?? ''));
-                if($oid !== '')
-                {
-                    $oids[$oid] = true;
-                }
-            }
-        }
         $expectedOid = $orderNo.'-'.$detailId;
-        if(array_keys($oids) !== [$expectedOid])
+        if(count($lines) !== 1 || !is_array($lines[0]) || trim((string)($lines[0]['oid'] ?? '')) !== $expectedOid)
         {
             throw new \RuntimeException('ERP refund is linked to an unexpected ShopXO order detail.');
+        }
+        if((int)($record['process_status'] ?? 0) === 90)
+        {
+            $expectedQuantity = $localType === 1
+                ? (int)($aftersale['number'] ?? 0)
+                : (int)($detail['buy_number'] ?? 0);
+            $refundQuantity = $lines[0]['refund_num'] ?? null;
+            $refundQuantityText = is_int($refundQuantity) || is_float($refundQuantity) || is_string($refundQuantity)
+                ? trim((string)$refundQuantity)
+                : '';
+            if($expectedQuantity <= 0
+                || preg_match('/^\d+(?:\.0+)?$/D', $refundQuantityText) !== 1
+                || (int)$refundQuantityText !== $expectedQuantity)
+            {
+                throw new \RuntimeException('ERP refund quantity does not match the completed ShopXO aftersale.');
+            }
         }
     }
 

@@ -1391,6 +1391,7 @@ class OrderAftersaleService
         $pay_price = ($pay_log['total_price']-$pay_log['pay_price'] <= 0.01) ? $pay_log['total_price'] : $pay_log['pay_price'];
         $pay_params = [
             'order_no'          => $pay_log['log_no'],
+            'refund_no'         => RefundRequestNoService::ForAftersale($aftersale),
             'trade_no'          => $pay_log['trade_no'],
             'pay_price'         => $pay_price,
             'pay_time'          => $pay_log['pay_time'],

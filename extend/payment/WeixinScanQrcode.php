@@ -10,6 +10,8 @@
 // +----------------------------------------------------------------------
 namespace payment;
 
+use app\service\RefundRequestNoService;
+
 use app\service\PayLogService;
 
 /**
@@ -376,6 +378,7 @@ class WeixinScanQrcode
         $refund_reason = empty($params['refund_reason']) ? $params['order_no'].'订单退款'.$params['refund_price'].'元' : $params['refund_reason'];
 
         // 请求参数
+        $refund_no = RefundRequestNoService::Provided($params);
         $parameter = [
             'appid'             => $this->config['appid'],
             'mch_id'            => $this->config['mch_id'],
@@ -383,7 +386,7 @@ class WeixinScanQrcode
             'sign_type'         => 'MD5',
             'transaction_id'    => $params['trade_no'],
             'out_trade_no'      => $params['order_no'],
-            'out_refund_no'     => $params['order_no'].GetNumberCode(),
+            'out_refund_no'     => $refund_no === '' ? $params['order_no'].GetNumberCode() : $refund_no,
             'total_fee'         => (int) (($params['pay_price']*1000)/10),
             'refund_fee'        => (int) (($params['refund_price']*1000)/10),
             'refund_desc'       => $refund_reason,            

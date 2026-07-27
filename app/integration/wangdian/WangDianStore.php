@@ -340,6 +340,11 @@ final class WangDianStore implements WangDianStoreInterface
         {
             throw new \RuntimeException('ShopXO order for aftersale '.$aftersaleId.' was not found.');
         }
+        $detail = Db::name('OrderDetail')->where(['id'=>$aftersale['order_detail_id']])->field('id,buy_number')->find();
+        if(empty($detail))
+        {
+            throw new \RuntimeException('ShopXO order detail for aftersale '.$aftersaleId.' was not found.');
+        }
         $wasPushed = (int)Db::name('WangdianSyncLog')->where([
             ['business_type', '=', 'aftersale_push'],
             ['business_key', 'like', $aftersaleId.':%'],
@@ -349,15 +354,16 @@ final class WangDianStore implements WangDianStoreInterface
         {
             throw new \RuntimeException('ShopXO aftersale '.$aftersaleId.' has no successful Wangdiantong push record.');
         }
-        WangDianAftersaleMapper::assertRemoteLink($record, $aftersale, $order);
+        WangDianAftersaleMapper::assertRemoteLink($record, $aftersale, $order, $detail);
+        $processStatus = (int)($record['process_status'] ?? 0);
+        $action = WangDianAftersaleStatePolicy::action($processStatus);
         if(!$autoProcess)
         {
             return $aftersaleId;
         }
 
-        $processStatus = (int)($record['process_status'] ?? 0);
         $localStatus = (int)$aftersale['status'];
-        if($processStatus === 10)
+        if($action === 'cancel')
         {
             if(!in_array($localStatus, [3, 5], true))
             {
@@ -369,7 +375,7 @@ final class WangDianStore implements WangDianStoreInterface
             }
             return $aftersaleId;
         }
-        if($processStatus === 40)
+        if($action === 'refuse')
         {
             if(in_array($localStatus, [0, 2], true))
             {
@@ -386,7 +392,7 @@ final class WangDianStore implements WangDianStoreInterface
             return $aftersaleId;
         }
 
-        if($processStatus === 90)
+        if($action === 'complete')
         {
             if($localStatus === 2)
             {
@@ -403,8 +409,7 @@ final class WangDianStore implements WangDianStoreInterface
             return $aftersaleId;
         }
 
-        $approvedStatuses = [30, 50, 52, 54, 55, 56, 58, 59, 60, 63, 64, 65, 69, 70, 71, 80];
-        if((int)$aftersale['type'] === 1 && $localStatus === 0 && in_array($processStatus, $approvedStatuses, true))
+        if((int)$aftersale['type'] === 1 && $localStatus === 0 && $action === 'approve')
         {
             $this->assertAftersaleOperation(OrderAftersaleService::AftersaleConfirm([
                 'id'=>$aftersaleId,

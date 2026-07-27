@@ -49,35 +49,128 @@ assertWangDianAftersaleSame('seller_refuse', $refundOnly['status'], 'A refused S
 assertWangDianAftersaleSame(4, $refundOnly['order_list'][0]['num'], 'A refund-only line must still send a positive item quantity');
 
 WangDianAftersaleMapper::assertRemoteLink(
-    ['tid'=>'O100', 'type'=>2, 'refund_amount'=>'9.5000', 'refund_order_list'=>[['oid'=>'O100-101']]],
-    ['id'=>12, 'type'=>1, 'price'=>'9.50', 'order_no'=>'O100', 'order_detail_id'=>101],
-    ['delivery_time'=>1700000100]
+    [
+        'tid'=>'O100', 'type'=>2, 'process_status'=>90,
+        'refund_amount'=>'9.5000', 'actual_refund_amount'=>'9.50',
+        'refund_order_list'=>[['oid'=>'O100-101', 'refund_num'=>2]],
+    ],
+    ['id'=>12, 'type'=>1, 'price'=>'9.50', 'number'=>2, 'order_no'=>'O100', 'order_detail_id'=>101],
+    ['delivery_time'=>1700000100],
+    ['buy_number'=>3]
+);
+
+$actualAmountRejected = false;
+$detailMismatchRejected = false;
+try
+{
+    WangDianAftersaleMapper::assertRemoteLink(
+        [
+            'tid'=>'O100', 'type'=>2, 'process_status'=>90,
+            'refund_amount'=>'9.50', 'actual_refund_amount'=>'8.50',
+            'refund_order_list'=>[['oid'=>'O100-101', 'refund_num'=>2]],
+        ],
+        ['id'=>12, 'type'=>1, 'price'=>'9.50', 'number'=>2, 'order_no'=>'O100', 'order_detail_id'=>101],
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
+    );
+} catch(RuntimeException $e) {
+    $actualAmountRejected = str_contains($e->getMessage(), 'actual');
+}
+assertWangDianAftersaleSame(true, $actualAmountRejected, 'A completed ERP refund with another actual amount must be rejected');
+
+$malformedAmountRejected = false;
+try
+{
+    WangDianAftersaleMapper::assertRemoteLink(
+        [
+            'tid'=>'O100', 'type'=>2, 'process_status'=>90,
+            'refund_amount'=>'9.50junk', 'actual_refund_amount'=>'9.50',
+            'refund_order_list'=>[['oid'=>'O100-101', 'refund_num'=>2]],
+        ],
+        ['id'=>12, 'type'=>1, 'price'=>'9.50', 'number'=>2, 'order_no'=>'O100', 'order_detail_id'=>101],
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
+    );
+} catch(RuntimeException $e) {
+    $malformedAmountRejected = str_contains($e->getMessage(), 'amount');
+}
+assertWangDianAftersaleSame(true, $malformedAmountRejected, 'A malformed ERP refund amount must not be coerced into a valid amount');
+
+$refundQuantityRejected = false;
+try
+{
+    WangDianAftersaleMapper::assertRemoteLink(
+        [
+            'tid'=>'O100', 'type'=>2, 'process_status'=>90,
+            'refund_amount'=>'9.50', 'actual_refund_amount'=>'9.50',
+            'refund_order_list'=>[['oid'=>'O100-101', 'refund_num'=>1]],
+        ],
+        ['id'=>12, 'type'=>1, 'price'=>'9.50', 'number'=>2, 'order_no'=>'O100', 'order_detail_id'=>101],
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
+    );
+} catch(RuntimeException $e) {
+    $refundQuantityRejected = str_contains($e->getMessage(), 'quantity');
+}
+assertWangDianAftersaleSame(true, $refundQuantityRejected, 'A completed ERP refund with another item quantity must be rejected');
+
+$fractionalQuantityRejected = false;
+try
+{
+    WangDianAftersaleMapper::assertRemoteLink(
+        [
+            'tid'=>'O100', 'type'=>2, 'process_status'=>90,
+            'refund_amount'=>'9.50', 'actual_refund_amount'=>'9.50',
+            'refund_order_list'=>[['oid'=>'O100-101', 'refund_num'=>'2.5']],
+        ],
+        ['id'=>12, 'type'=>1, 'price'=>'9.50', 'number'=>2, 'order_no'=>'O100', 'order_detail_id'=>101],
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
+    );
+} catch(RuntimeException $e) {
+    $fractionalQuantityRejected = str_contains($e->getMessage(), 'quantity');
+}
+assertWangDianAftersaleSame(true, $fractionalQuantityRejected, 'A fractional ERP refund quantity must be rejected');
+
+WangDianAftersaleMapper::assertRemoteLink(
+    [
+        'tid'=>'O101', 'type'=>1, 'process_status'=>90,
+        'refund_amount'=>'1.00', 'actual_refund_amount'=>'1.00',
+        'refund_order_list'=>[['oid'=>'O101-102', 'refund_num'=>4]],
+    ],
+    ['id'=>13, 'type'=>0, 'price'=>'1.00', 'number'=>0, 'order_no'=>'O101', 'order_detail_id'=>102],
+    ['delivery_time'=>0],
+    ['buy_number'=>4]
 );
 
 try
 {
     WangDianAftersaleMapper::assertRemoteLink(
-        ['tid'=>'O100', 'type'=>2, 'refund_amount'=>'9.50', 'refund_order_list'=>[['oid'=>'O100-999']]],
+        ['tid'=>'O100', 'type'=>2, 'process_status'=>20, 'refund_amount'=>'9.50', 'refund_order_list'=>[['oid'=>'O100-999']]],
         ['id'=>12, 'type'=>1, 'price'=>'9.50', 'order_no'=>'O100', 'order_detail_id'=>101],
-        ['delivery_time'=>1700000100]
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
     );
-    throw new RuntimeException('An ERP refund linked to another order detail must be rejected');
 } catch(RuntimeException $e) {
-    assertWangDianAftersaleSame(true, str_contains($e->getMessage(), 'detail'), 'The link validation error must identify the order-detail mismatch');
+    $detailMismatchRejected = str_contains($e->getMessage(), 'detail');
 }
+assertWangDianAftersaleSame(true, $detailMismatchRejected, 'An ERP refund linked to another order detail must be rejected');
 
+$amountMismatchRejected = false;
 try
 {
     WangDianAftersaleMapper::assertRemoteLink(
-        ['tid'=>'O100', 'type'=>2, 'refund_amount'=>'8.50', 'refund_order_list'=>[['oid'=>'O100-101']]],
+        ['tid'=>'O100', 'type'=>2, 'process_status'=>20, 'refund_amount'=>'8.50', 'refund_order_list'=>[['oid'=>'O100-101']]],
         ['id'=>12, 'type'=>1, 'price'=>'9.50', 'order_no'=>'O100', 'order_detail_id'=>101],
-        ['delivery_time'=>1700000100]
+        ['delivery_time'=>1700000100],
+        ['buy_number'=>3]
     );
-    throw new RuntimeException('An ERP refund with another amount must be rejected');
 } catch(RuntimeException $e) {
-    assertWangDianAftersaleSame(true, str_contains($e->getMessage(), 'amount'), 'The link validation error must identify the amount mismatch');
+    $amountMismatchRejected = str_contains($e->getMessage(), 'amount');
 }
+assertWangDianAftersaleSame(true, $amountMismatchRejected, 'An ERP refund with another amount must be rejected');
 
+$invalidQuantityRejected = false;
 try
 {
     WangDianAftersaleMapper::map(
@@ -86,9 +179,9 @@ try
         ['id'=>103, 'buy_number'=>1],
         'shop'
     );
-    throw new RuntimeException('A return with zero quantity must be rejected');
 } catch(InvalidArgumentException $e) {
-    assertWangDianAftersaleSame(true, str_contains($e->getMessage(), 'quantity'), 'The validation error must explain the invalid return quantity');
+    $invalidQuantityRejected = str_contains($e->getMessage(), 'quantity');
 }
+assertWangDianAftersaleSame(true, $invalidQuantityRejected, 'A return with zero quantity must be rejected');
 
 echo "WangDianAftersaleMapper tests passed\n";

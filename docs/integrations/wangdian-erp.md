@@ -217,7 +217,7 @@ enabled:1, success:3, fail:0, skipped:0
 | 创建或更新退款/退货单 | `sales_refund_push.php` | ShopXO -> 旺店通 | 10 单 |
 | 查询 ERP 退换单处理状态 | `refund_query.php` | ShopXO -> 旺店通 | 每页 40 单 |
 
-ShopXO 售后单号 `id` 映射为稳定的旺店通平台退款单号 `SHOPXO-AS-{id}`，订单明细编号继续使用订单推送阶段的 `{order_no}-{order_detail_id}`。只有原订单已经成功推送至旺店通的售后单才会进入售后推送任务。
+ShopXO 售后单号 `id` 映射为稳定的旺店通平台退款单号 `SHOPXO-AS-{id}`，同一编号也作为微信等支付插件的退款请求号。这样同一售后在“支付平台退款成功、商城本地事务失败”后重试时会复用原请求号，避免重复退款。订单明细编号继续使用订单推送阶段的 `{order_no}-{order_detail_id}`。只有原订单已经成功推送至旺店通的售后单才会进入售后推送任务。
 
 类型映射：
 
@@ -252,7 +252,7 @@ WANGDIAN_AFTERSALE_REFUNDMENT=0
 
 `WANGDIAN_AFTERSALE_QUERY_LOOKBACK` 单位为秒，默认查询 ERP 最近 7 天内修改过的退换单，最大 30 天。旺店通每次状态变化都会更新 `modified`，因此长期退货在发生新状态时仍会被获取。
 
-`WANGDIAN_AFTERSALE_AUTO_PROCESS` 默认关闭。关闭时任务会验证 ERP 退换单与 ShopXO 售后单的关联并记录状态，但不会确认、拒绝、取消或执行退款。关联验证要求存在成功的售后出站推送日志，并且 ERP 返回的 `tid`、明细 `oid`、售后类型和退款金额与 ShopXO 售后单完全一致。任一项不一致都不会执行本地操作。联调验证状态映射后才能在生产环境设为 `true`。开启后：
+`WANGDIAN_AFTERSALE_AUTO_PROCESS` 默认关闭。关闭时任务会验证 ERP 退换单与 ShopXO 售后单的关联并记录状态，但不会确认、拒绝、取消或执行退款。关联验证要求存在成功的售后出站推送日志，并且 ERP 返回的 `tid`、唯一明细 `oid`、售后类型和申请退款金额与 ShopXO 售后单完全一致。ERP 标记完成时还必须校验 `actual_refund_amount`，以及明细 `refund_num`：退货退款使用售后申请数量，仅退款使用原订单明细购买数量。任一项不一致都不会执行本地操作。联调验证状态映射后才能在生产环境设为 `true`。开启后：
 
 - ERP 取消映射为 ShopXO 售后取消；
 - ERP 拒绝在 ShopXO 当前状态允许时映射为售后拒绝；
@@ -262,6 +262,8 @@ WANGDIAN_AFTERSALE_REFUNDMENT=0
 `WANGDIAN_AFTERSALE_REFUNDMENT` 使用 ShopXO 原有退款方式：`0` 原路退回、`1` 退到钱包、`2` 手工处理。生产环境自动处理建议使用 `0`，上线前必须用测试订单完成一次 ERP 收货到微信退款的完整验证。
 
 自动处理关闭时使用 `observe` 幂等键，开启后使用 `apply` 幂等键，因此观察过的 ERP 状态不会阻止后续正式处理。单条售后失败不影响同批其他记录，并继续沿用通用指数退避重试日志。
+
+旺店通返回未识别的 `process_status` 时，该条同步会标记为失败并等待重试，不会作为成功的空操作跳过。应先核对旺店通状态定义并补充明确映射，再继续自动处理。
 
 `refund_query.php` 会按照接口返回的 `total_count` 持续翻页，直到当前时间窗口全部读取完成，不使用固定页数上限，避免高峰期后续记录长期无法同步。
 

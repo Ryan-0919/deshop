@@ -11,6 +11,7 @@
 namespace payment;
 
 use app\service\AppMiniUserService;
+use app\service\RefundRequestNoService;
 
 /**
  * 微信支付
@@ -688,6 +689,7 @@ class Weixin
 
         // appid，默认使用公众号appid
         $appid = $this->PayAppID($params['client_type']);
+        $refund_no = RefundRequestNoService::Provided($params);
 
         // 请求参数
         $data = [
@@ -697,7 +699,7 @@ class Weixin
             'sign_type'         => 'MD5',
             'transaction_id'    => $params['trade_no'],
             'out_trade_no'      => $params['order_no'],
-            'out_refund_no'     => $params['order_no'].GetNumberCode(),
+            'out_refund_no'     => $refund_no === '' ? $params['order_no'].GetNumberCode() : $refund_no,
             'total_fee'         => (int) (($params['pay_price']*1000)/10),
             'refund_fee'        => (int) (($params['refund_price']*1000)/10),
             'refund_desc'       => $refund_reason,            
@@ -714,6 +716,7 @@ class Weixin
                 'trade_no'      => isset($result['transaction_id']) ? $result['transaction_id'] : (isset($result['err_code_des']) ? $result['err_code_des'] : ''),
                 'buyer_user'    => isset($result['refund_id']) ? $result['refund_id'] : '',
                 'refund_price'  => isset($result['refund_fee']) ? $result['refund_fee']/100 : 0.00,
+                'request_params'=> $data,
                 'return_params' => $result,
             ];
             return DataReturn('退款成功', 0, $data);
