@@ -1236,7 +1236,8 @@ CREATE TABLE `sxo_order`  (
   INDEX `status`(`status` ASC) USING BTREE,
   INDEX `pay_status`(`pay_status` ASC) USING BTREE,
   INDEX `warehouse_id`(`warehouse_id` ASC) USING BTREE,
-  INDEX `system_type`(`system_type` ASC) USING BTREE
+  INDEX `system_type`(`system_type` ASC) USING BTREE,
+  INDEX `wangdian_upd_id`(`upd_time` ASC, `id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单';
 
 -- ----------------------------
@@ -1321,7 +1322,9 @@ CREATE TABLE `sxo_order_aftersale`  (
   INDEX `goods_id`(`goods_id` ASC) USING BTREE,
   INDEX `user_id`(`user_id` ASC) USING BTREE,
   INDEX `status`(`status` ASC) USING BTREE,
-  INDEX `system_type`(`system_type` ASC) USING BTREE
+  INDEX `system_type`(`system_type` ASC) USING BTREE,
+  INDEX `wangdian_upd_id`(`upd_time` ASC, `id` ASC) USING BTREE,
+  INDEX `wangdian_detail_id`(`order_detail_id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单售后';
 
 -- ----------------------------
@@ -1456,7 +1459,8 @@ CREATE TABLE `sxo_order_detail`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `user_id`(`user_id` ASC) USING BTREE,
   INDEX `order_id`(`order_id` ASC) USING BTREE,
-  INDEX `goods_id`(`goods_id` ASC) USING BTREE
+  INDEX `goods_id`(`goods_id` ASC) USING BTREE,
+  INDEX `wangdian_upd_id`(`upd_time` ASC, `id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单详情';
 
 -- ----------------------------
@@ -2475,11 +2479,31 @@ CREATE TABLE `sxo_wangdian_sync_log`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `business`(`business_type` ASC, `business_key` ASC) USING BTREE,
   INDEX `status_retry`(`status` ASC, `next_retry_time` ASC) USING BTREE,
+  INDEX `business_status_upd`(`business_type` ASC, `status` ASC, `upd_time` ASC, `id` ASC) USING BTREE,
   INDEX `order_id`(`order_id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Wangdiantong synchronization log';
 
 -- ----------------------------
 -- Records of sxo_wangdian_sync_log
+-- ----------------------------
+BEGIN;
+COMMIT;
+
+-- ----------------------------
+-- Table structure for sxo_wangdian_sync_cursor
+-- ----------------------------
+DROP TABLE IF EXISTS `sxo_wangdian_sync_cursor`;
+CREATE TABLE `sxo_wangdian_sync_cursor`  (
+  `name` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT 'Cursor name',
+  `cursor_value` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Numeric cursor value',
+  `cursor_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Timestamp cursor value',
+  `add_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Created Unix timestamp',
+  `upd_time` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Updated Unix timestamp',
+  PRIMARY KEY (`name`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = 'Wangdiantong synchronization cursors';
+
+-- ----------------------------
+-- Records of sxo_wangdian_sync_cursor
 -- ----------------------------
 BEGIN;
 COMMIT;

@@ -72,15 +72,16 @@ trait WangDianLogisticsSyncWorkflow
                 $ackResponse = $this->client()->request('logistics_sync_ack.php', [
                     'logistics_list' => json_encode($ack, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 ]);
-                $ackErrors = $this->ackErrors($ackResponse);
+                $ackErrors = $this->ackErrors($ackResponse, array_column($processed, 'rec_id'));
                 foreach($processed as $item)
                 {
-                    if(isset($ackErrors[$item['rec_id']]))
+                    $ackError = $ackErrors[$item['rec_id']] ?? $ackErrors['*'] ?? '';
+                    if($ackError !== '')
                     {
                         $this->store()->markFailure(
                             'logistics',
                             $item['rec_id'],
-                            $ackErrors[$item['rec_id']],
+                            $ackError,
                             $now,
                             $this->responseSummary($ackResponse)
                         );

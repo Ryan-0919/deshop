@@ -3,6 +3,7 @@ namespace app\integration\wangdian;
 
 final class WangDianSyncService
 {
+    use WangDianBatchPushWorkflow;
     use WangDianOrderSyncWorkflow;
     use WangDianLogisticsSyncWorkflow;
     use WangDianInventorySyncWorkflow;
@@ -104,41 +105,24 @@ final class WangDianSyncService
         return WangDianLogSanitizer::sanitize($summary);
     }
 
-    private function ackErrors(array $response): array
+    private function ackErrors(array $response, array $attemptedRecIds): array
     {
         $result = [];
+        $attempted = array_fill_keys(array_map('strval', $attemptedRecIds), true);
         foreach((array)($response['errors'] ?? []) as $error)
         {
             if(!is_array($error))
             {
-                continue;
+                return ['*'=>'Wangdiantong acknowledgement contained a malformed error record.'];
             }
             $recId = trim((string)($error['rec_id'] ?? ''));
-            if($recId !== '')
+            if($recId === '' || !isset($attempted[$recId]))
             {
-                $result[$recId] = self::truncate(WangDianLogSanitizer::sanitizeText(trim((string)($error['error'] ?? $error['message'] ?? 'Acknowledgement failed.'))), 1000);
+                return ['*'=>'Wangdiantong acknowledgement referenced an unexpected record.'];
             }
+            $result[$recId] = self::truncate(WangDianLogSanitizer::sanitizeText(trim((string)($error['error'] ?? $error['message'] ?? 'Acknowledgement failed.'))), 1000);
         }
         return $result;
-    }
-
-    private static function acceptedCount(array $response): ?int
-    {
-        if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
-        {
-            return null;
-        }
-        $newCount = array_key_exists('new_count', $response)
-            ? self::parseNonNegativeInteger($response['new_count'])
-            : 0;
-        $changedCount = array_key_exists('chg_count', $response)
-            ? self::parseNonNegativeInteger($response['chg_count'])
-            : 0;
-        if($newCount === null || $changedCount === null || $newCount > PHP_INT_MAX-$changedCount)
-        {
-            return null;
-        }
-        return $newCount+$changedCount;
     }
 
     private static function parseNonNegativeInteger($value): ?int

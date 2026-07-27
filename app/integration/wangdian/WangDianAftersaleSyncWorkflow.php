@@ -56,45 +56,13 @@ trait WangDianAftersaleSyncWorkflow
                 return $result;
             }
 
-            try {
-                $response = $this->client()->request('sales_refund_push.php', [
-                    'api_refund_list'=>json_encode($refunds, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                ]);
-                $refundErrors = $this->aftersaleErrors($response);
-                if(!$this->aftersaleCountMatches($response, $attempts, $refundErrors))
-                {
-                    foreach($attempts as $index=>$attempt)
-                    {
-                        $this->retryAftersaleIndividually($refunds[$index], $attempt, $now, $result);
-                    }
-                    return $result;
-                }
-                foreach($attempts as $attempt)
-                {
-                    $error = $refundErrors[$attempt['refund_no']] ?? $refundErrors['*'] ?? '';
-                    if($error === '')
-                    {
-                        $this->store()->markSuccess('aftersale_push', $attempt['key'], $this->responseSummary($response), $now);
-                        $result['success']++;
-                    } else {
-                        $this->store()->markFailure('aftersale_push', $attempt['key'], $error, $now, $this->responseSummary($response));
-                        $result['failed']++;
-                    }
-                }
-            } catch(\Throwable $e) {
-                foreach($attempts as $attempt)
-                {
-                    $this->store()->markFailure(
-                        'aftersale_push',
-                        $attempt['key'],
-                        $this->safeError($e),
-                        $now,
-                        $this->exceptionResponseSummary($e)
-                    );
-                    $result['failed']++;
-                }
-                $result['message'] = $this->safeError($e);
-            }
+            $this->pushBatchRecords(
+                WangDianBatchPushDefinition::aftersales(),
+                $refunds,
+                $attempts,
+                $now,
+                $result
+            );
         } catch(\Throwable $e) {
             $result['failed']++;
             $result['message'] = $this->safeError($e);
@@ -121,6 +89,7 @@ trait WangDianAftersaleSyncWorkflow
             $total = null;
             $received = 0;
             $seenPages = [];
+            $seenRefunds = [];
             for($page = 0; ; $page++)
             {
                 $response = $this->client()->request('refund_query.php', [
@@ -149,16 +118,6 @@ trait WangDianAftersaleSyncWorkflow
                     throw new \RuntimeException('Wangdiantong refund total_count changed during pagination.');
                 }
                 $total = $responseTotal;
-                $pageCount = count($records);
-                if($pageCount > $total-$received)
-                {
-                    throw new \RuntimeException('Wangdiantong refund pagination returned more records than total_count.');
-                }
-                $nextReceived = $received+$pageCount;
-                if($pageCount < $pageSize && $nextReceived < $total)
-                {
-                    throw new \RuntimeException('Wangdiantong refund pagination ended before total_count was reached.');
-                }
                 $pageSignature = hash('sha256', json_encode(
                     $records,
                     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
@@ -168,13 +127,43 @@ trait WangDianAftersaleSyncWorkflow
                     throw new \RuntimeException('Wangdiantong refund pagination returned a repeated page.');
                 }
                 $seenPages[$pageSignature] = true;
+                $pageRefunds = [];
                 foreach($records as $record)
                 {
                     if(!is_array($record))
                     {
-                        $result['failed']++;
-                        continue;
+                        throw new \RuntimeException('Wangdiantong refund pagination contained a malformed record.');
                     }
+                    $refundId = trim((string)($record['refund_id'] ?? ''));
+                    $sourceNo = trim((string)($record['src_no'] ?? ''));
+                    if($sourceNo === '')
+                    {
+                        $sourceNo = trim((string)($record['api_outer_no'] ?? ''));
+                    }
+                    if($refundId === '' && $sourceNo === '')
+                    {
+                        throw new \RuntimeException('Wangdiantong refund pagination contained a record without a stable identifier.');
+                    }
+                    $refundIdentity = $refundId !== '' ? 'refund_id:'.$refundId : 'source_no:'.$sourceNo;
+                    if(isset($seenRefunds[$refundIdentity]) || isset($pageRefunds[$refundIdentity]))
+                    {
+                        throw new \RuntimeException('Wangdiantong refund pagination returned an overlapping record.');
+                    }
+                    $pageRefunds[$refundIdentity] = true;
+                }
+                $seenRefunds += $pageRefunds;
+                $pageCount = count($pageRefunds);
+                if($pageCount > $total-$received)
+                {
+                    throw new \RuntimeException('Wangdiantong refund pagination returned more unique records than total_count.');
+                }
+                $nextReceived = $received+$pageCount;
+                if($pageCount < $pageSize && $nextReceived < $total)
+                {
+                    throw new \RuntimeException('Wangdiantong refund pagination ended before total_count was reached.');
+                }
+                foreach($records as $record)
+                {
                     $sourceNo = trim((string)($record['src_no'] ?? ''));
                     if($sourceNo === '')
                     {
@@ -225,90 +214,6 @@ trait WangDianAftersaleSyncWorkflow
             $result['message'] = $this->safeError($e);
         }
         return $result;
-    }
-
-    private function aftersaleErrors(array $response): array
-    {
-        $result = [];
-        foreach((array)($response['errors'] ?? []) as $key=>$error)
-        {
-            if(is_array($error))
-            {
-                $refundNo = trim((string)($error['refund_no'] ?? $error['src_no'] ?? ''));
-                $message = trim((string)($error['error'] ?? $error['message'] ?? 'Aftersale synchronization failed.'));
-            } else {
-                $refundNo = is_string($key) ? trim($key) : '';
-                $message = trim((string)$error);
-            }
-            $result[$refundNo === '' ? '*' : $refundNo] = self::truncate(
-                WangDianLogSanitizer::sanitizeText($message === '' ? 'Aftersale synchronization failed.' : $message),
-                1000
-            );
-        }
-        return $result;
-    }
-
-    private function aftersaleCountMatches(
-        array $response,
-        array $attempts,
-        array $errors,
-        bool $allowImplicitSingleSuccess = false
-    ): bool
-    {
-        $attemptedRefunds = array_fill_keys(array_column($attempts, 'refund_no'), true);
-        foreach(array_keys($errors) as $refundNo)
-        {
-            if($refundNo !== '*' && !isset($attemptedRefunds[$refundNo]))
-            {
-                return false;
-            }
-        }
-        if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
-        {
-            return !empty($errors) || ($allowImplicitSingleSuccess && count($attempts) === 1);
-        }
-        $accepted = self::acceptedCount($response);
-        if($accepted === null)
-        {
-            return false;
-        }
-        $expectedAccepted = count(array_filter($attempts, static function(array $attempt) use ($errors): bool
-        {
-            return !isset($errors[$attempt['refund_no']]) && !isset($errors['*']);
-        }));
-        return $accepted === $expectedAccepted;
-    }
-
-    private function retryAftersaleIndividually(array $refund, array $attempt, int $now, array &$result): void
-    {
-        try {
-            $response = $this->client()->request('sales_refund_push.php', [
-                'api_refund_list'=>json_encode([$refund], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-            ]);
-            $errors = $this->aftersaleErrors($response);
-            if(!$this->aftersaleCountMatches($response, [$attempt], $errors, true))
-            {
-                throw new WangDianApiException('Wangdiantong did not accept aftersale '.$attempt['refund_no'].'.', $response);
-            }
-            $error = $errors[$attempt['refund_no']] ?? $errors['*'] ?? '';
-            if($error !== '')
-            {
-                $this->store()->markFailure('aftersale_push', $attempt['key'], $error, $now, $this->responseSummary($response));
-                $result['failed']++;
-                return;
-            }
-            $this->store()->markSuccess('aftersale_push', $attempt['key'], $this->responseSummary($response), $now);
-            $result['success']++;
-        } catch(\Throwable $e) {
-            $this->store()->markFailure(
-                'aftersale_push',
-                $attempt['key'],
-                $this->safeError($e),
-                $now,
-                $this->exceptionResponseSummary($e)
-            );
-            $result['failed']++;
-        }
     }
 
 }

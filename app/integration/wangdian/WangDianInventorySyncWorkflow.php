@@ -77,15 +77,16 @@ trait WangDianInventorySyncWorkflow
                 $ackResponse = $this->client()->request('api_goods_stock_change_ack.php', [
                     'stock_sync_list' => json_encode($ack, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 ]);
-                $ackErrors = $this->ackErrors($ackResponse);
+                $ackErrors = $this->ackErrors($ackResponse, array_column($processed, 'rec_id'));
                 foreach($processed as $item)
                 {
-                    if(isset($ackErrors[$item['rec_id']]))
+                    $ackError = $ackErrors[$item['rec_id']] ?? $ackErrors['*'] ?? '';
+                    if($ackError !== '')
                     {
                         $this->store()->markFailure(
                             'inventory',
                             $item['key'],
-                            $ackErrors[$item['rec_id']],
+                            $ackError,
                             $item['attempt_time'],
                             $this->responseSummary($ackResponse)
                         );

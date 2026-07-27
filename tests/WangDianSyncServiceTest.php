@@ -243,6 +243,23 @@ assertWangDianSyncSame([0, 1], array_column($logisticsAck, 'status'), 'Shipment 
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
+$client->responses['logistics_sync_query.php'][] = [
+    'code'=>0,
+    'trades'=>[['rec_id'=>'ack-logistics', 'tid'=>'O1', 'logistics_no'=>'YD1', 'logistics_code_erp'=>'YUNDA']],
+];
+$client->responses['logistics_sync_ack.php'][] = [
+    'code'=>0,
+    'message'=>'Ambiguous ACK',
+    'errors'=>[['rec_id'=>'another-record', 'error'=>'Not acknowledged']],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->syncLogistics();
+assertWangDianSyncSame(0, $result['success'], 'An ACK error for an unknown logistics record must not confirm the attempted record');
+assertWangDianSyncSame(1, $result['failed'], 'An ambiguous logistics ACK must remain retryable');
+assertWangDianSyncSame([], $store->successes, 'Ambiguous logistics ACKs must not create successful synchronization logs');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
 $client->responses['api_goods_stock_change_query.php'][] = [
     'code'=>0,
     'stock_change_list'=>[
@@ -258,6 +275,25 @@ assertWangDianSyncSame(1, $result['success'], 'A stock record applied locally sh
 assertWangDianSyncSame(1, $result['failed'], 'A stock record rejected locally should remain failed');
 $stockAck = json_decode($client->requests[1]['params']['stock_sync_list'] ?? '', true);
 assertWangDianSyncSame(['ok'], array_column($stockAck, 'rec_id'), 'Only locally committed stock records may be acknowledged');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['api_goods_stock_change_query.php'][] = [
+    'code'=>0,
+    'stock_change_list'=>[[
+        'rec_id'=>'ack-inventory', 'goods_id'=>'34', 'spec_no'=>'SKU-1', 'sync_stock'=>8, 'stock_change_count'=>'10',
+    ]],
+];
+$client->responses['api_goods_stock_change_ack.php'][] = [
+    'code'=>0,
+    'message'=>'Malformed ACK',
+    'errors'=>['missing rec_id'],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->syncInventory();
+assertWangDianSyncSame(0, $result['success'], 'A malformed inventory ACK must not confirm the attempted stock record');
+assertWangDianSyncSame(1, $result['failed'], 'A malformed inventory ACK must remain retryable');
+assertWangDianSyncSame([], $store->successes, 'Malformed inventory ACKs must not create successful synchronization logs');
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
@@ -497,6 +533,48 @@ $result = $service->syncAftersales();
 assertWangDianSyncSame(40, $result['success'], 'A repeated ERP page must not be applied twice');
 assertWangDianSyncSame(1, $result['failed'], 'A repeated ERP page must stop the run as an upstream pagination failure');
 assertWangDianSyncSame(2, count($client->requests), 'Repeated refund pages must be detected immediately');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$overlappingPage = [];
+for($id = 21; $id <= 60; $id++)
+{
+    $overlappingPage[] = ['refund_id'=>(string)$id, 'src_no'=>'SHOPXO-AS-'.$id, 'process_status'=>30, 'modified'=>'2026-07-25 11:00:00'];
+}
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$pageOne];
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$overlappingPage];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'Only the first unique refund page may be applied before overlap is detected');
+assertWangDianSyncSame(1, $result['failed'], 'Partially overlapping refund pages must fail the synchronization run');
+assertWangDianSyncSame(40, count($store->aftersaleStatuses), 'Overlapping refund records must never be applied twice');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>1, 'refunds'=>['malformed-record']];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(0, $result['success'], 'Malformed refund entries must not count toward total_count');
+assertWangDianSyncSame(1, $result['failed'], 'Malformed refund entries must fail the pagination run');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$fallbackPageOne = [];
+$fallbackPageTwo = [];
+for($id = 1; $id <= 40; $id++)
+{
+    $fallbackPageOne[] = ['src_no'=>'SHOPXO-AS-'.$id, 'process_status'=>30, 'modified'=>'2026-07-25 11:00:00'];
+}
+for($id = 21; $id <= 60; $id++)
+{
+    $fallbackPageTwo[] = ['src_no'=>'SHOPXO-AS-'.$id, 'process_status'=>40, 'modified'=>'2026-07-25 11:05:00'];
+}
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$fallbackPageOne];
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$fallbackPageTwo];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'Fallback source numbers must detect overlap even when other fields change');
+assertWangDianSyncSame(1, $result['failed'], 'Overlapping source numbers without refund_id must fail the run');
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();

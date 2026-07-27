@@ -68,137 +68,18 @@ trait WangDianOrderSyncWorkflow
                 return $result;
             }
 
-            try {
-                $response = $this->client()->request('trade_push.php', [
-                    'shop_no' => (string)$this->config['shop_no'],
-                    'switch' => '0',
-                    'trade_list' => json_encode($trades, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                ]);
-                $tradeErrors = $this->tradeErrors($response);
-                if(!$this->tradeCountMatches($response, $attempts, $tradeErrors))
-                {
-                    foreach($attempts as $index=>$attempt)
-                    {
-                        $this->retryOrderIndividually($trades[$index], $attempt, $now, $result);
-                    }
-                    return $result;
-                }
-                foreach($attempts as $attempt)
-                {
-                    $error = $tradeErrors[$attempt['order_no']] ?? $tradeErrors['*'] ?? '';
-                    if($error === '')
-                    {
-                        $this->store()->markSuccess('order_push', $attempt['key'], $this->responseSummary($response), $now);
-                        $result['success']++;
-                    } else {
-                        $this->store()->markFailure(
-                            'order_push',
-                            $attempt['key'],
-                            $error,
-                            $now,
-                            $this->responseSummary($response)
-                        );
-                        $result['failed']++;
-                    }
-                }
-            } catch(\Throwable $e) {
-                foreach($attempts as $attempt)
-                {
-                    $this->store()->markFailure(
-                        'order_push',
-                        $attempt['key'],
-                        $this->safeError($e),
-                        $now,
-                        $this->exceptionResponseSummary($e)
-                    );
-                    $result['failed']++;
-                }
-                $result['message'] = $this->safeError($e);
-            }
+            $this->pushBatchRecords(
+                WangDianBatchPushDefinition::orders((string)$this->config['shop_no']),
+                $trades,
+                $attempts,
+                $now,
+                $result
+            );
         } catch(\Throwable $e) {
             $result['failed']++;
             $result['message'] = $this->safeError($e);
         }
         return $result;
-    }
-
-    private function tradeErrors(array $response): array
-    {
-        $errors = $response['errors'] ?? [];
-        if(empty($errors) || !is_array($errors))
-        {
-            return [];
-        }
-
-        $result = [];
-        foreach($errors as $key=>$error)
-        {
-            if(is_array($error))
-            {
-                $orderNo = trim((string)($error['tid'] ?? $error['order_no'] ?? ''));
-                $message = trim((string)($error['error'] ?? $error['message'] ?? 'Order synchronization failed.'));
-            } else {
-                $orderNo = is_string($key) ? trim($key) : '';
-                $message = trim((string)$error);
-            }
-            $result[$orderNo === '' ? '*' : $orderNo] = self::truncate(
-                WangDianLogSanitizer::sanitizeText($message === '' ? 'Order synchronization failed.' : $message),
-                1000
-            );
-        }
-        return $result;
-    }
-
-    private function tradeCountMatches(array $response, array $attempts, array $errors): bool
-    {
-        if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
-        {
-            return false;
-        }
-        $accepted = self::acceptedCount($response);
-        if($accepted === null)
-        {
-            return false;
-        }
-        $expectedAccepted = count(array_filter($attempts, static function(array $attempt) use ($errors): bool
-        {
-            return !isset($errors[$attempt['order_no']]) && !isset($errors['*']);
-        }));
-        return $accepted === $expectedAccepted;
-    }
-
-    private function retryOrderIndividually(array $trade, array $attempt, int $now, array &$result): void
-    {
-        try {
-            $response = $this->client()->request('trade_push.php', [
-                'shop_no'=>(string)$this->config['shop_no'],
-                'switch'=>'0',
-                'trade_list'=>json_encode([$trade], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-            ]);
-            $errors = $this->tradeErrors($response);
-            if(!$this->tradeCountMatches($response, [$attempt], $errors))
-            {
-                throw new WangDianApiException('Wangdiantong did not accept order '.$attempt['order_no'].'.', $response);
-            }
-            $error = $errors[$attempt['order_no']] ?? $errors['*'] ?? '';
-            if($error !== '')
-            {
-                $this->store()->markFailure('order_push', $attempt['key'], $error, $now, $this->responseSummary($response));
-                $result['failed']++;
-                return;
-            }
-            $this->store()->markSuccess('order_push', $attempt['key'], $this->responseSummary($response), $now);
-            $result['success']++;
-        } catch(\Throwable $e) {
-            $this->store()->markFailure(
-                'order_push',
-                $attempt['key'],
-                $this->safeError($e),
-                $now,
-                $this->exceptionResponseSummary($e)
-            );
-            $result['failed']++;
-        }
     }
 
 }

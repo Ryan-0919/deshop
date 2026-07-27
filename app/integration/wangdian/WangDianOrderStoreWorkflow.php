@@ -21,7 +21,7 @@ trait WangDianOrderStoreWorkflow
             ->buildSql();
         $changedDetails = Db::name('OrderDetail')->alias('odc')
             ->whereRaw('odc.order_id=o.id')
-            ->whereRaw('GREATEST(odc.add_time,odc.upd_time)>woc.upd_time')
+            ->whereRaw('GREATEST(odc.add_time,odc.upd_time)>=woc.upd_time')
             ->field('1')
             ->limit(1)
             ->buildSql();
@@ -41,7 +41,7 @@ trait WangDianOrderStoreWorkflow
                 ])
                 ->whereRaw(
                     '(woc.order_id IS NULL'
-                    .' OR GREATEST(COALESCE(o.add_time,0),COALESCE(o.upd_time,0),COALESCE(oa.add_time,0),COALESCE(oa.upd_time,0)) > woc.upd_time'
+                    .' OR GREATEST(COALESCE(o.add_time,0),COALESCE(o.upd_time,0),COALESCE(oa.add_time,0),COALESCE(oa.upd_time,0)) >= woc.upd_time'
                     .' OR EXISTS '.$changedDetails
                     .' OR woc.upd_time <= '.$recheckBefore.')'
                 )
