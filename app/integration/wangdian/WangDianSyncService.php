@@ -48,7 +48,11 @@ final class WangDianSyncService
             {
                 $order = $item['order'] ?? [];
                 $orderId = (int)($order['id'] ?? 0);
-                $businessKey = (string)$orderId;
+                $businessKey = trim((string)($item['key'] ?? ''));
+                if($businessKey === '')
+                {
+                    $businessKey = (string)$orderId;
+                }
                 if($orderId <= 0 || !$this->store()->startAttempt('order_push', $businessKey, $orderId, [
                     'order_id' => $orderId,
                     'order_no' => (string)($order['order_no'] ?? ''),
@@ -88,6 +92,14 @@ final class WangDianSyncService
                     'trade_list' => json_encode($trades, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 ]);
                 $tradeErrors = $this->tradeErrors($response);
+                if(!$this->tradeCountMatches($response, $attempts, $tradeErrors))
+                {
+                    foreach($attempts as $index=>$attempt)
+                    {
+                        $this->retryOrderIndividually($trades[$index], $attempt, $now, $result);
+                    }
+                    return $result;
+                }
                 foreach($attempts as $attempt)
                 {
                     $error = $tradeErrors[$attempt['order_no']] ?? $tradeErrors['*'] ?? '';
@@ -386,12 +398,14 @@ final class WangDianSyncService
                 }
 
                 try {
-                    $goodsId = $this->store()->applyInventory($record, max(0, (int)($this->config['shopxo_warehouse_id'] ?? 0)));
+                    $normalizedRecord = $record;
+                    $normalizedRecord['sync_stock'] = WangDianInventoryValue::parse($record['sync_stock'] ?? null);
+                    $goodsId = $this->store()->applyInventory($normalizedRecord, max(0, (int)($this->config['shopxo_warehouse_id'] ?? 0)));
                     $processed[] = [
                         'key'=>$businessKey,
                         'rec_id'=>$recId,
                         'goods_id'=>$goodsId,
-                        'sync_stock'=>(int)$record['sync_stock'],
+                        'sync_stock'=>$normalizedRecord['sync_stock'],
                         'stock_change_count'=>$changeCount,
                     ];
                 } catch(\Throwable $e) {
@@ -612,7 +626,13 @@ final class WangDianSyncService
         {
             if(array_key_exists($countField, $response))
             {
-                $summary[$countField] = (int)$response[$countField];
+                $count = self::parseNonNegativeInteger($response[$countField]);
+                if($count === null)
+                {
+                    $summary[$countField.'_invalid'] = true;
+                } else {
+                    $summary[$countField] = $count;
+                }
             }
         }
         return $summary;
@@ -663,6 +683,58 @@ final class WangDianSyncService
         return $result;
     }
 
+    private function tradeCountMatches(array $response, array $attempts, array $errors): bool
+    {
+        if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
+        {
+            return false;
+        }
+        $accepted = self::acceptedCount($response);
+        if($accepted === null)
+        {
+            return false;
+        }
+        $expectedAccepted = count(array_filter($attempts, static function(array $attempt) use ($errors): bool
+        {
+            return !isset($errors[$attempt['order_no']]) && !isset($errors['*']);
+        }));
+        return $accepted === $expectedAccepted;
+    }
+
+    private function retryOrderIndividually(array $trade, array $attempt, int $now, array &$result): void
+    {
+        try {
+            $response = $this->client()->request('trade_push.php', [
+                'shop_no'=>(string)$this->config['shop_no'],
+                'switch'=>'0',
+                'trade_list'=>json_encode([$trade], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            ]);
+            $errors = $this->tradeErrors($response);
+            if(!$this->tradeCountMatches($response, [$attempt], $errors))
+            {
+                throw new WangDianApiException('Wangdiantong did not accept order '.$attempt['order_no'].'.', $response);
+            }
+            $error = $errors[$attempt['order_no']] ?? $errors['*'] ?? '';
+            if($error !== '')
+            {
+                $this->store()->markFailure('order_push', $attempt['key'], $error, $now, $this->responseSummary($response));
+                $result['failed']++;
+                return;
+            }
+            $this->store()->markSuccess('order_push', $attempt['key'], $this->responseSummary($response), $now);
+            $result['success']++;
+        } catch(\Throwable $e) {
+            $this->store()->markFailure(
+                'order_push',
+                $attempt['key'],
+                $this->safeError($e),
+                $now,
+                $this->exceptionResponseSummary($e)
+            );
+            $result['failed']++;
+        }
+    }
+
     private function aftersaleErrors(array $response): array
     {
         $result = [];
@@ -690,12 +762,53 @@ final class WangDianSyncService
         {
             return true;
         }
-        $accepted = (int)($response['new_count'] ?? 0)+(int)($response['chg_count'] ?? 0);
+        $accepted = self::acceptedCount($response);
+        if($accepted === null)
+        {
+            return false;
+        }
         $expectedAccepted = count(array_filter($attempts, static function(array $attempt) use ($errors): bool
         {
             return !isset($errors[$attempt['refund_no']]) && !isset($errors['*']);
         }));
         return $accepted === $expectedAccepted;
+    }
+
+    private static function acceptedCount(array $response): ?int
+    {
+        if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
+        {
+            return null;
+        }
+        $newCount = array_key_exists('new_count', $response)
+            ? self::parseNonNegativeInteger($response['new_count'])
+            : 0;
+        $changedCount = array_key_exists('chg_count', $response)
+            ? self::parseNonNegativeInteger($response['chg_count'])
+            : 0;
+        if($newCount === null || $changedCount === null || $newCount > PHP_INT_MAX-$changedCount)
+        {
+            return null;
+        }
+        return $newCount+$changedCount;
+    }
+
+    private static function parseNonNegativeInteger($value): ?int
+    {
+        if(is_int($value))
+        {
+            return $value >= 0 ? $value : null;
+        }
+        if(!is_string($value) || preg_match('/^(?:0|[1-9]\d*)$/D', $value) !== 1)
+        {
+            return null;
+        }
+        $max = (string)PHP_INT_MAX;
+        if(strlen($value) > strlen($max) || (strlen($value) === strlen($max) && strcmp($value, $max) > 0))
+        {
+            return null;
+        }
+        return (int)$value;
     }
 
     private function retryAftersaleIndividually(array $refund, array $attempt, int $now, array &$result): void

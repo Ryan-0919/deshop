@@ -68,6 +68,8 @@ WANGDIAN_EXPRESS_MAP={"YUNDA":6}
 WANGDIAN_ORDER_BATCH_SIZE=50
 WANGDIAN_LOGISTICS_BATCH_SIZE=100
 WANGDIAN_INVENTORY_BATCH_SIZE=100
+WANGDIAN_CRON_TOKEN=
+WANGDIAN_CRON_ALLOWED_IPS=127.0.0.1,::1
 ```
 
 `WANGDIAN_ORDER_SYNC_FROM` 必须设置为首次启用同步的日期时间或 Unix 时间戳。未配置时不推送订单，防止首次开启后误推历史订单。
@@ -156,7 +158,7 @@ SKU 匹配优先级：
 
 新增通用同步日志表，以 `business_type + business_key` 唯一标识一次业务：
 
-- 订单：`order_push + order_id`
+- 订单：`order_push + order_id:revision_hash`。`revision_hash` 对订单、收货地址和订单明细的当前数据生成稳定 SHA-256；内容未变化时不会重复推送，地址修改、明细增删或其他订单内容更新后会使用新幂等键调用 `trade_push.php` 更新 ERP 订单。
 - 发货：`logistics + rec_id`
 - 库存：`inventory + rec_id:stock_change_count`
 
@@ -186,11 +188,21 @@ SKU 匹配优先级：
 enabled:1, success:3, fail:0, skipped:0
 ```
 
-生产环境建议只允许服务器本机或可信调度器访问这些地址，并在 Nginx 层限制来源 IP。
+这些入口默认只允许 `127.0.0.1` 和 `::1` 访问。远程调度器必须满足以下任一条件：
+
+- 来源 IP 已配置在 `WANGDIAN_CRON_ALLOWED_IPS`；
+- 请求头 `X-Wangdian-Cron-Token` 与 `WANGDIAN_CRON_TOKEN` 完全一致。
+
+生产环境必须配置可信调度器 IP 或高强度随机 token，并建议继续在 Nginx 层限制来源 IP。例如：
+
+```bash
+curl -H "X-Wangdian-Cron-Token: ${WANGDIAN_CRON_TOKEN}" \
+  https://shop.example.com/api/crontab/wangdianorderpush
+```
 
 部署顺序：
 
-1. 执行数据库迁移，创建同步日志表。
+1. 在 ShopXO SQL 控制台执行数据库迁移，创建同步日志表；脚本使用 `{PREFIX}` 占位符，会自动适配当前数据库表前缀。若直接通过 MySQL 客户端执行，需要先将 `{PREFIX}` 替换为实际表前缀。
 2. 配置测试环境参数，保持正式环境关闭。
 3. 为测试商品补齐唯一 SKU 编码，并在旺店通建立对应商家编码。
 4. 设置 `WANGDIAN_ORDER_SYNC_FROM`。

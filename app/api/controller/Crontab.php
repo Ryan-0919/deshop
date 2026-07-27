@@ -10,6 +10,7 @@
 // +----------------------------------------------------------------------
 namespace app\api\controller;
 
+use app\integration\wangdian\WangDianCronAccessPolicy;
 use app\service\CrontabService;
 
 /**
@@ -26,7 +27,7 @@ class Crontab extends Common
      */
     public function WangDianOrderPush()
     {
-        return $this->WangDianResult(CrontabService::WangDianOrderPush());
+        return $this->WangDianExecute([CrontabService::class, 'WangDianOrderPush']);
     }
 
     /**
@@ -34,7 +35,7 @@ class Crontab extends Common
      */
     public function WangDianLogisticsSync()
     {
-        return $this->WangDianResult(CrontabService::WangDianLogisticsSync());
+        return $this->WangDianExecute([CrontabService::class, 'WangDianLogisticsSync']);
     }
 
     /**
@@ -42,7 +43,7 @@ class Crontab extends Common
      */
     public function WangDianInventorySync()
     {
-        return $this->WangDianResult(CrontabService::WangDianInventorySync());
+        return $this->WangDianExecute([CrontabService::class, 'WangDianInventorySync']);
     }
 
     /**
@@ -50,7 +51,7 @@ class Crontab extends Common
      */
     public function WangDianAftersalePush()
     {
-        return $this->WangDianResult(CrontabService::WangDianAftersalePush());
+        return $this->WangDianExecute([CrontabService::class, 'WangDianAftersalePush']);
     }
 
     /**
@@ -58,7 +59,22 @@ class Crontab extends Common
      */
     public function WangDianAftersaleSync()
     {
-        return $this->WangDianResult(CrontabService::WangDianAftersaleSync());
+        return $this->WangDianExecute([CrontabService::class, 'WangDianAftersaleSync']);
+    }
+
+    private function WangDianExecute(callable $sync)
+    {
+        $config = (array)config('wangdian');
+        if(!WangDianCronAccessPolicy::allows(
+            trim((string)($_SERVER['REMOTE_ADDR'] ?? '')),
+            trim((string)request()->header('x-wangdian-cron-token', '')),
+            (string)($config['cron_token'] ?? ''),
+            (array)($config['cron_allowed_ips'] ?? [])
+        ))
+        {
+            return response('Forbidden.', 403);
+        }
+        return $this->WangDianResult(call_user_func($sync));
     }
 
     private function WangDianResult(array $result): string

@@ -2459,7 +2459,7 @@ COMMIT;
 DROP TABLE IF EXISTS `sxo_wangdian_sync_log`;
 CREATE TABLE `sxo_wangdian_sync_log`  (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
-  `business_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT 'order_push, logistics or inventory',
+  `business_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT 'order_push, logistics, inventory, aftersale_push or aftersale_status',
   `business_key` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT 'Idempotency key',
   `order_id` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'ShopXO order id when applicable',
   `status` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT '0 pending, 1 success, 2 failed',

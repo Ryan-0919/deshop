@@ -13,6 +13,7 @@ if($syncFrom !== '' && !ctype_digit($syncFrom))
 }
 
 $expressMap = json_decode((string)env('wangdian_express_map', '{}'), true);
+$cronAllowedIps = preg_split('/[\s,]+/', trim((string)env('wangdian_cron_allowed_ips', '127.0.0.1,::1'))) ?: [];
 
 return [
     'enabled' => filter_var(env('wangdian_enabled', false), FILTER_VALIDATE_BOOLEAN),
@@ -31,6 +32,8 @@ return [
     'aftersale_query_lookback' => min(2592000, max(300, (int)env('wangdian_aftersale_query_lookback', 604800))),
     'aftersale_auto_process' => filter_var(env('wangdian_aftersale_auto_process', false), FILTER_VALIDATE_BOOLEAN),
     'aftersale_refundment' => min(2, max(0, (int)env('wangdian_aftersale_refundment', 0))),
+    'cron_token' => trim((string)env('wangdian_cron_token', '')),
+    'cron_allowed_ips' => array_values(array_filter(array_map('trim', $cronAllowedIps), static fn(string $ip): bool => $ip !== '')),
     'express_map' => is_array($expressMap) ? $expressMap : [],
     'connect_timeout' => max(1, (int)env('wangdian_connect_timeout', 5)),
     'timeout' => max(5, (int)env('wangdian_timeout', 30)),

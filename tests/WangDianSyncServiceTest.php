@@ -136,6 +136,7 @@ function wangDianTestConfig(): array
 function wangDianOrderFixture(int $id, string $sku): array
 {
     return [
+        'key'=>$id.':1700000010',
         'order' => [
             'id'=>$id, 'order_no'=>'O'.$id, 'user_id'=>9, 'status'=>2, 'pay_status'=>1,
             'add_time'=>1700000010, 'pay_time'=>1700000020, 'total_price'=>'10.00',
@@ -160,6 +161,8 @@ $store->orders = [wangDianOrderFixture(1, 'SKU-1'), wangDianOrderFixture(2, 'SKU
 $client->responses['trade_push.php'][] = [
     'code'=>0,
     'message'=>'OK',
+    'new_count'=>1,
+    'chg_count'=>0,
     'errors'=>[['tid'=>'O2', 'error'=>'ERP rejected this order.']],
 ];
 $service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
@@ -170,9 +173,55 @@ assertWangDianSyncSame(2, $result['failed'], 'Local validation and ERP item erro
 assertWangDianSyncSame('trade_push.php', $client->requests[0]['endpoint'] ?? null, 'Orders must use the trade push endpoint');
 $tradeList = json_decode($client->requests[0]['params']['trade_list'] ?? '', true);
 assertWangDianSyncSame(['O1', 'O2'], array_column($tradeList, 'tid'), 'Only locally valid orders should be sent');
-assertWangDianSyncSame([['order_push', '1']], $store->successes, 'Only the ERP-accepted order should be marked successful');
-$erpOrderFailure = array_values(array_filter($store->failures, static fn(array $failure): bool => $failure[1] === '2'))[0] ?? [];
+assertWangDianSyncSame([['order_push', '1:1700000010']], $store->successes, 'Only the ERP-accepted order revision should be marked successful');
+$erpOrderFailure = array_values(array_filter($store->failures, static fn(array $failure): bool => $failure[1] === '2:1700000010'))[0] ?? [];
 assertWangDianSyncSame(1, $erpOrderFailure[3]['error_count'] ?? null, 'A per-order ERP rejection must retain its response summary');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$store->orders = [wangDianOrderFixture(5, 'SKU-5'), wangDianOrderFixture(6, 'SKU-6')];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Partial', 'new_count'=>1, 'chg_count'=>0];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Updated', 'new_count'=>0, 'chg_count'=>1];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Rejected', 'new_count'=>0, 'chg_count'=>0];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushOrders();
+
+assertWangDianSyncSame(1, $result['success'], 'A count-only partial order response must isolate the accepted order');
+assertWangDianSyncSame(1, $result['failed'], 'A count-only partial order response must leave the rejected order retryable');
+assertWangDianSyncSame(3, count($client->requests), 'An ambiguous order batch response must fall back to one request per order');
+assertWangDianSyncSame([['order_push', '5:1700000010']], $store->successes, 'Only the individually accepted order revision may be marked successful');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$store->orders = [wangDianOrderFixture(8, 'SKU-8')];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Malformed count', 'new_count'=>'1garbage', 'chg_count'=>0];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Accepted after retry', 'new_count'=>1, 'chg_count'=>0];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushOrders();
+
+assertWangDianSyncSame(1, $result['success'], 'A malformed batch count must be resolved through an individually validated retry');
+assertWangDianSyncSame(2, count($client->requests), 'A malformed order acceptance count must never be trusted as success');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$firstRevision = wangDianOrderFixture(7, 'SKU-7');
+$secondRevision = wangDianOrderFixture(7, 'SKU-7');
+$secondRevision['key'] = '7:1700002000';
+$secondRevision['address']['address'] = 'Road 2';
+$store->orders = [$firstRevision];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Created', 'new_count'=>1, 'chg_count'=>0];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Updated', 'new_count'=>0, 'chg_count'=>1];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$service->pushOrders();
+$store->orders = [$secondRevision];
+$result = $service->pushOrders();
+
+assertWangDianSyncSame(1, $result['success'], 'A changed order revision must be pushed as an ERP update');
+assertWangDianSyncSame(
+    [['order_push', '7:1700000010'], ['order_push', '7:1700002000']],
+    $store->successes,
+    'Each order revision must have its own idempotency key'
+);
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
@@ -209,6 +258,22 @@ assertWangDianSyncSame(1, $result['success'], 'A stock record applied locally sh
 assertWangDianSyncSame(1, $result['failed'], 'A stock record rejected locally should remain failed');
 $stockAck = json_decode($client->requests[1]['params']['stock_sync_list'] ?? '', true);
 assertWangDianSyncSame(['ok'], array_column($stockAck, 'rec_id'), 'Only locally committed stock records may be acknowledged');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['api_goods_stock_change_query.php'][] = [
+    'code'=>0,
+    'stock_change_list'=>[
+        ['rec_id'=>'invalid-stock', 'goods_id'=>'34', 'spec_no'=>'SKU-1', 'sync_stock'=>'abc', 'stock_change_count'=>'9'],
+    ],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->syncInventory();
+
+assertWangDianSyncSame(0, $result['success'], 'A malformed ERP inventory value must never be accepted');
+assertWangDianSyncSame(1, $result['failed'], 'A malformed ERP inventory value must remain retryable');
+assertWangDianSyncSame([], $store->inventory, 'Malformed inventory must be rejected before reaching the persistence store');
+assertWangDianSyncSame(1, count($client->requests), 'Malformed inventory must not be acknowledged to ERP');
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();

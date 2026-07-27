@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `sxo_wangdian_sync_log` (
+CREATE TABLE IF NOT EXISTS `{PREFIX}wangdian_sync_log` (
   `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `business_type` varchar(32) NOT NULL DEFAULT '' COMMENT 'order_push, logistics, inventory, aftersale_push or aftersale_status',
   `business_key` varchar(120) NOT NULL DEFAULT '' COMMENT 'Idempotency key',

@@ -3,6 +3,23 @@ namespace app\integration\wangdian;
 
 final class WangDianOrderMapper
 {
+    public static function sourceFields(): array
+    {
+        return [
+            'order'=>[
+                'id', 'order_no', 'user_id', 'add_time', 'pay_time', 'user_note',
+                'increase_price', 'pay_price', 'total_price', 'preferential_price',
+            ],
+            'address'=>[
+                'order_id', 'name', 'tel', 'province_name', 'city_name', 'county_name', 'address',
+            ],
+            'detail'=>[
+                'id', 'order_id', 'goods_id', 'title', 'coding', 'spec_coding',
+                'buy_number', 'price', 'total_price', 'spec',
+            ],
+        ];
+    }
+
     public static function map(array $order, array $address, array $details): array
     {
         self::requireValue($order, 'order_no', 'ShopXO order number is required.');

@@ -13,72 +13,121 @@ final class WangDianStore implements WangDianStoreInterface
 
     public function pendingOrders(int $syncFrom, int $limit, int $now): array
     {
-        $orders = Db::name('Order')->alias('o')
-            ->leftJoin('wangdian_sync_log wsl', "wsl.business_type='order_push' AND wsl.business_key=CAST(o.id AS CHAR)")
-            ->where([
-                ['o.order_model', '=', 0],
-                ['o.status', '=', 2],
-                ['o.pay_status', '=', 1],
-                ['o.pay_time', '>=', $syncFrom],
-                ['o.is_delete_time', '=', 0],
-            ])
-            ->whereRaw('(wsl.id IS NULL OR (wsl.status IN (0,2) AND wsl.next_retry_time <= '.(int)$now.'))')
-            ->field('o.*')
-            ->order('o.id asc')
-            ->limit($limit)
-            ->select()
-            ->toArray();
-        if(empty($orders))
+        $result = [];
+        $lastOrderId = 0;
+        $limit = max(1, $limit);
+        $chunkSize = min(500, max(100, $limit*5));
+        $sourceFields = WangDianOrderMapper::sourceFields();
+        while(count($result) < $limit)
         {
-            return [];
-        }
-
-        $orderIds = array_column($orders, 'id');
-        $addresses = Db::name('OrderAddress')->where(['order_id'=>$orderIds])->column('*', 'order_id');
-        $details = Db::name('OrderDetail')->where(['order_id'=>$orderIds])->order('id asc')->select()->toArray();
-        $detailsByOrder = [];
-        $skuCodes = [];
-        foreach($details as $detail)
-        {
-            $detailsByOrder[$detail['order_id']][] = $detail;
-            $sku = trim((string)($detail['spec_coding'] ?? ''));
-            if($sku !== '')
-            {
-                $skuCodes[] = $sku;
-            }
-        }
-
-        $skuMatches = [];
-        if(!empty($skuCodes))
-        {
-            $specifications = Db::name('GoodsSpecBase')
-                ->where(['coding'=>array_values(array_unique($skuCodes))])
-                ->field('id,goods_id,coding')
+            $orders = Db::name('Order')->alias('o')
+                ->where([
+                    ['o.id', '>', $lastOrderId],
+                    ['o.order_model', '=', 0],
+                    ['o.status', '=', 2],
+                    ['o.pay_status', '=', 1],
+                    ['o.pay_time', '>=', $syncFrom],
+                    ['o.is_delete_time', '=', 0],
+                ])
+                ->field($this->qualifiedFields($sourceFields['order'], 'o'))
+                ->order('o.id asc')
+                ->limit($chunkSize)
                 ->select()
                 ->toArray();
-            foreach($specifications as $specification)
+            if(empty($orders))
             {
-                $skuMatches[strtolower((string)$specification['coding'])][] = $specification;
+                break;
             }
-        }
+            $lastOrderId = (int)$orders[array_key_last($orders)]['id'];
 
-        $result = [];
-        foreach($orders as $order)
-        {
-            $orderId = (int)$order['id'];
-            $orderDetails = $detailsByOrder[$orderId] ?? [];
-            $result[] = [
-                'order'=>$order,
-                'address'=>$addresses[$orderId] ?? [],
-                'details'=>$orderDetails,
-                'validation_error'=>$this->orderSkuValidationError($orderDetails, $skuMatches),
-            ];
+            $orderIds = array_column($orders, 'id');
+            $addressRows = Db::name('OrderAddress')
+                ->where(['order_id'=>$orderIds])
+                ->field(implode(',', $sourceFields['address']))
+                ->select()
+                ->toArray();
+            $addresses = array_column($addressRows, null, 'order_id');
+            $details = Db::name('OrderDetail')
+                ->where(['order_id'=>$orderIds])
+                ->field(implode(',', $sourceFields['detail']))
+                ->order('id asc')
+                ->select()
+                ->toArray();
+            $detailsByOrder = [];
+            $skuCodes = [];
+            foreach($details as $detail)
+            {
+                $detailsByOrder[$detail['order_id']][] = $detail;
+                $sku = trim((string)($detail['spec_coding'] ?? ''));
+                if($sku !== '')
+                {
+                    $skuCodes[] = $sku;
+                }
+            }
+
+            $skuMatches = [];
+            if(!empty($skuCodes))
+            {
+                $specifications = Db::name('GoodsSpecBase')
+                    ->where(['coding'=>array_values(array_unique($skuCodes))])
+                    ->field('id,goods_id,coding')
+                    ->select()
+                    ->toArray();
+                foreach($specifications as $specification)
+                {
+                    $skuMatches[strtolower((string)$specification['coding'])][] = $specification;
+                }
+            }
+
+            $candidates = [];
+            foreach($orders as $order)
+            {
+                $orderId = (int)$order['id'];
+                $orderDetails = $detailsByOrder[$orderId] ?? [];
+                $address = $addresses[$orderId] ?? [];
+                $key = WangDianOrderRevision::key($order, $address, $orderDetails);
+                $candidates[$key] = [
+                    'key'=>$key,
+                    'order'=>$order,
+                    'address'=>$address,
+                    'details'=>$orderDetails,
+                    'validation_error'=>$this->orderSkuValidationError($orderDetails, $skuMatches),
+                ];
+            }
+            $logs = Db::name('WangdianSyncLog')->where([
+                'business_type'=>'order_push',
+                'business_key'=>array_keys($candidates),
+            ])->column('*', 'business_key');
+            foreach($candidates as $key=>$candidate)
+            {
+                $log = $logs[$key] ?? [];
+                if(empty($log) || (
+                    in_array((int)$log['status'], [0,2], true)
+                    && (int)$log['next_retry_time'] <= $now
+                ))
+                {
+                    $result[] = $candidate;
+                    if(count($result) >= $limit)
+                    {
+                        break;
+                    }
+                }
+            }
+            if(count($orders) < $chunkSize)
+            {
+                break;
+            }
         }
         return $result;
     }
 
     public function pendingAftersales(int $limit, int $now): array
     {
+        $pushedOrders = Db::name('WangdianSyncLog')
+            ->where(['business_type'=>'order_push', 'status'=>1])
+            ->field('order_id')
+            ->group('order_id')
+            ->buildSql();
         $eventTime = "CASE oa.status"
             ." WHEN 0 THEN oa.apply_time"
             ." WHEN 1 THEN oa.confirm_time"
@@ -91,7 +140,7 @@ final class WangDianStore implements WangDianStoreInterface
         $rows = Db::name('OrderAftersale')->alias('oa')
             ->join('order o', 'o.id=oa.order_id')
             ->join('order_detail od', 'od.id=oa.order_detail_id')
-            ->join('wangdian_sync_log opl', "opl.business_type='order_push' AND opl.business_key=CAST(o.id AS CHAR) AND opl.status=1")
+            ->join([$pushedOrders=>'opl'], 'opl.order_id=o.id')
             ->leftJoin('wangdian_sync_log wsl', "wsl.business_type='aftersale_push' AND wsl.business_key=".$syncKey)
             ->where([
                 ['o.order_model', '=', 0],
@@ -272,11 +321,7 @@ final class WangDianStore implements WangDianStoreInterface
         {
             throw new \InvalidArgumentException('The inventory record is missing spec_no, goods_id or sync_stock.');
         }
-        $inventory = (int)$record['sync_stock'];
-        if($inventory < 0)
-        {
-            throw new \InvalidArgumentException('Wangdiantong sellable inventory cannot be negative.');
-        }
+        $inventory = WangDianInventoryValue::parse($record['sync_stock']);
 
         $matches = array_values(array_filter(
             Db::name('GoodsSpecBase')->where(['coding'=>$specNo])->select()->toArray(),
@@ -306,6 +351,7 @@ final class WangDianStore implements WangDianStoreInterface
             }
 
             $goodsInventory = (int)Db::name('GoodsSpecBase')->where(['goods_id'=>$goodsId])->sum('inventory');
+            WangDianInventoryValue::parse($goodsInventory);
             if(Db::name('Goods')->where(['id'=>$goodsId])->update(['inventory'=>$goodsInventory, 'upd_time'=>time()]) === false)
             {
                 throw new \RuntimeException('Failed to update ShopXO goods inventory.');
@@ -457,6 +503,7 @@ final class WangDianStore implements WangDianStoreInterface
         }
 
         $warehouseInventory = (int)Db::name('WarehouseGoodsSpec')->where(['warehouse_goods_id'=>$warehouseGoods['id']])->sum('inventory');
+        WangDianInventoryValue::parse($warehouseInventory);
         if(Db::name('WarehouseGoods')->where(['id'=>$warehouseGoods['id']])->update([
             'inventory'=>$warehouseInventory,
             'upd_time'=>time(),
@@ -507,6 +554,14 @@ final class WangDianStore implements WangDianStoreInterface
             }
         }
         return '';
+    }
+
+    private function qualifiedFields(array $fields, string $alias): string
+    {
+        return implode(',', array_map(
+            static fn(string $field): string => $alias.'.'.$field,
+            $fields
+        ));
     }
 
     private function truncate(string $value, int $maxCharacters): string

@@ -11,6 +11,8 @@ foreach([
     'WANGDIAN_AFTERSALE_QUERY_LOOKBACK',
     'WANGDIAN_AFTERSALE_AUTO_PROCESS',
     'WANGDIAN_AFTERSALE_REFUNDMENT',
+    'WANGDIAN_CRON_TOKEN',
+    'WANGDIAN_CRON_ALLOWED_IPS',
 ] as $key)
 {
     if(preg_match('/^'.preg_quote($key, '/').'\s*=/m', $template) !== 1)
