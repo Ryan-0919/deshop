@@ -80,7 +80,7 @@ final class WangDianAftersaleMapper
         return $result;
     }
 
-    public static function assertRemoteLink(array $record, array $aftersale, array $order, array $detail): string
+    public static function validateRemoteLinkAndGetAction(array $record, array $aftersale, array $order, array $detail): string
     {
         $orderNo = trim((string)($aftersale['order_no'] ?? ''));
         $detailId = (int)($aftersale['order_detail_id'] ?? 0);

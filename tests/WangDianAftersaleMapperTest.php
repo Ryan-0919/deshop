@@ -48,7 +48,7 @@ assertWangDianAftersaleSame(1, $refundOnly['type'], 'An unshipped refund must us
 assertWangDianAftersaleSame('seller_refuse', $refundOnly['status'], 'A refused ShopXO aftersale must close as seller-refused in ERP');
 assertWangDianAftersaleSame(4, $refundOnly['order_list'][0]['num'], 'A refund-only line must still send a positive item quantity');
 
-WangDianAftersaleMapper::assertRemoteLink(
+WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
     [
         'tid'=>'O100', 'type'=>2, 'process_status'=>90,
         'refund_amount'=>'9.5000', 'actual_refund_amount'=>'9.50',
@@ -63,7 +63,7 @@ $actualAmountRejected = false;
 $detailMismatchRejected = false;
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         [
             'tid'=>'O100', 'type'=>2, 'process_status'=>90,
             'refund_amount'=>'9.50', 'actual_refund_amount'=>'8.50',
@@ -81,7 +81,7 @@ assertWangDianAftersaleSame(true, $actualAmountRejected, 'A completed ERP refund
 $malformedAmountRejected = false;
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         [
             'tid'=>'O100', 'type'=>2, 'process_status'=>90,
             'refund_amount'=>'9.50junk', 'actual_refund_amount'=>'9.50',
@@ -99,7 +99,7 @@ assertWangDianAftersaleSame(true, $malformedAmountRejected, 'A malformed ERP ref
 $refundQuantityRejected = false;
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         [
             'tid'=>'O100', 'type'=>2, 'process_status'=>90,
             'refund_amount'=>'9.50', 'actual_refund_amount'=>'9.50',
@@ -117,7 +117,7 @@ assertWangDianAftersaleSame(true, $refundQuantityRejected, 'A completed ERP refu
 $fractionalQuantityRejected = false;
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         [
             'tid'=>'O100', 'type'=>2, 'process_status'=>90,
             'refund_amount'=>'9.50', 'actual_refund_amount'=>'9.50',
@@ -132,7 +132,7 @@ try
 }
 assertWangDianAftersaleSame(true, $fractionalQuantityRejected, 'A fractional ERP refund quantity must be rejected');
 
-WangDianAftersaleMapper::assertRemoteLink(
+WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
     [
         'tid'=>'O101', 'type'=>1, 'process_status'=>90,
         'refund_amount'=>'1.00', 'actual_refund_amount'=>'1.00',
@@ -145,7 +145,7 @@ WangDianAftersaleMapper::assertRemoteLink(
 
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         ['tid'=>'O100', 'type'=>2, 'process_status'=>20, 'refund_amount'=>'9.50', 'refund_order_list'=>[['oid'=>'O100-999']]],
         ['id'=>12, 'type'=>1, 'price'=>'9.50', 'order_no'=>'O100', 'order_detail_id'=>101],
         ['delivery_time'=>1700000100],
@@ -159,7 +159,7 @@ assertWangDianAftersaleSame(true, $detailMismatchRejected, 'An ERP refund linked
 $amountMismatchRejected = false;
 try
 {
-    WangDianAftersaleMapper::assertRemoteLink(
+    WangDianAftersaleMapper::validateRemoteLinkAndGetAction(
         ['tid'=>'O100', 'type'=>2, 'process_status'=>20, 'refund_amount'=>'8.50', 'refund_order_list'=>[['oid'=>'O100-101']]],
         ['id'=>12, 'type'=>1, 'price'=>'9.50', 'order_no'=>'O100', 'order_detail_id'=>101],
         ['delivery_time'=>1700000100],
