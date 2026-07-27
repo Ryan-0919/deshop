@@ -17,6 +17,15 @@ EXECUTE wangdian_stmt;
 DEALLOCATE PREPARE wangdian_stmt;
 
 SET @wangdian_sql = IF(
+  EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{PREFIX}order_aftersale' AND index_name='wangdian_add_id'),
+  'SELECT 1',
+  'ALTER TABLE `{PREFIX}order_aftersale` ADD INDEX `wangdian_add_id` (`add_time`, `id`)'
+);
+PREPARE wangdian_stmt FROM @wangdian_sql;
+EXECUTE wangdian_stmt;
+DEALLOCATE PREPARE wangdian_stmt;
+
+SET @wangdian_sql = IF(
   EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{PREFIX}order_aftersale' AND index_name='wangdian_detail_id'),
   'SELECT 1',
   'ALTER TABLE `{PREFIX}order_aftersale` ADD INDEX `wangdian_detail_id` (`order_detail_id`)'

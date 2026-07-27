@@ -128,6 +128,7 @@ trait WangDianAftersaleSyncWorkflow
                 }
                 $seenPages[$pageSignature] = true;
                 $pageRefunds = [];
+                $pageCount = 0;
                 foreach($records as $record)
                 {
                     if(!is_array($record))
@@ -136,23 +137,35 @@ trait WangDianAftersaleSyncWorkflow
                     }
                     $refundId = trim((string)($record['refund_id'] ?? ''));
                     $sourceNo = trim((string)($record['src_no'] ?? ''));
-                    if($sourceNo === '')
+                    $apiOuterNo = trim((string)($record['api_outer_no'] ?? ''));
+                    $refundIdentities = [];
+                    if($refundId !== '')
                     {
-                        $sourceNo = trim((string)($record['api_outer_no'] ?? ''));
+                        $refundIdentities[] = 'refund_id:'.$refundId;
                     }
-                    if($refundId === '' && $sourceNo === '')
+                    if($sourceNo !== '')
+                    {
+                        $refundIdentities[] = 'src_no:'.$sourceNo;
+                    }
+                    if($apiOuterNo !== '')
+                    {
+                        $refundIdentities[] = 'api_outer_no:'.$apiOuterNo;
+                    }
+                    if(empty($refundIdentities))
                     {
                         throw new \RuntimeException('Wangdiantong refund pagination contained a record without a stable identifier.');
                     }
-                    $refundIdentity = $refundId !== '' ? 'refund_id:'.$refundId : 'source_no:'.$sourceNo;
-                    if(isset($seenRefunds[$refundIdentity]) || isset($pageRefunds[$refundIdentity]))
+                    foreach($refundIdentities as $refundIdentity)
                     {
-                        throw new \RuntimeException('Wangdiantong refund pagination returned an overlapping record.');
+                        if(isset($seenRefunds[$refundIdentity]) || isset($pageRefunds[$refundIdentity]))
+                        {
+                            throw new \RuntimeException('Wangdiantong refund pagination returned an overlapping record.');
+                        }
+                        $pageRefunds[$refundIdentity] = true;
                     }
-                    $pageRefunds[$refundIdentity] = true;
+                    $pageCount++;
                 }
                 $seenRefunds += $pageRefunds;
-                $pageCount = count($pageRefunds);
                 if($pageCount > $total-$received)
                 {
                     throw new \RuntimeException('Wangdiantong refund pagination returned more unique records than total_count.');

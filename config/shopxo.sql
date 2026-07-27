@@ -1323,6 +1323,7 @@ CREATE TABLE `sxo_order_aftersale`  (
   INDEX `user_id`(`user_id` ASC) USING BTREE,
   INDEX `status`(`status` ASC) USING BTREE,
   INDEX `system_type`(`system_type` ASC) USING BTREE,
+  INDEX `wangdian_add_id`(`add_time` ASC, `id` ASC) USING BTREE,
   INDEX `wangdian_upd_id`(`upd_time` ASC, `id` ASC) USING BTREE,
   INDEX `wangdian_detail_id`(`order_detail_id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单售后';

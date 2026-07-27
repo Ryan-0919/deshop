@@ -551,6 +551,49 @@ assertWangDianSyncSame(40, count($store->aftersaleStatuses), 'Overlapping refund
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
+$mixedIdentityPage = [];
+for($id = 21; $id <= 60; $id++)
+{
+    $mixedIdentityPage[] = [
+        'src_no'=>'SHOPXO-AS-'.$id,
+        'process_status'=>40,
+        'modified'=>'2026-07-25 11:05:00',
+    ];
+}
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$pageOne];
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$mixedIdentityPage];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'Only the first refund page may apply when a later page drops refund_id');
+assertWangDianSyncSame(1, $result['failed'], 'Changing identifier representation must not hide an overlapping refund');
+assertWangDianSyncSame(40, count($store->aftersaleStatuses), 'Mixed refund identities must never apply an aftersale twice');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$sourceAliasPage = [];
+foreach($pageOne as $record)
+{
+    $record['api_outer_no'] = 'ERP-'.$record['src_no'];
+    $sourceAliasPage[] = $record;
+}
+$outerAliasPage = [];
+for($id = 21; $id <= 60; $id++)
+{
+    $outerAliasPage[] = [
+        'api_outer_no'=>'ERP-SHOPXO-AS-'.$id,
+        'process_status'=>40,
+        'modified'=>'2026-07-25 11:10:00',
+    ];
+}
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$sourceAliasPage];
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$outerAliasPage];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'Only the first refund page may apply when an alias becomes the only source identifier');
+assertWangDianSyncSame(1, $result['failed'], 'api_outer_no aliases must detect an overlapping refund');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
 $client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>1, 'refunds'=>['malformed-record']];
 $service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
 $result = $service->syncAftersales();

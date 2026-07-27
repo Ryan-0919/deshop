@@ -22,6 +22,7 @@ if($cursorSql === false)
 foreach([
     '`{PREFIX}wangdian_sync_cursor`',
     '`{PREFIX}order_aftersale` ADD INDEX `wangdian_upd_id` (`upd_time`, `id`)',
+    '`{PREFIX}order_aftersale` ADD INDEX `wangdian_add_id` (`add_time`, `id`)',
     '`{PREFIX}order_aftersale` ADD INDEX `wangdian_detail_id` (`order_detail_id`)',
     '`{PREFIX}order` ADD INDEX `wangdian_upd_id` (`upd_time`, `id`)',
     '`{PREFIX}order_detail` ADD INDEX `wangdian_upd_id` (`upd_time`, `id`)',

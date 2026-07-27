@@ -117,14 +117,15 @@ trait WangDianAftersaleStoreWorkflow
         }
 
         foreach([
-            ['OrderAftersale', 'aftersale_push_changed', 'oa.id', 'id', [], 0],
-            ['Order', 'aftersale_push_order_changed', 'oa.order_id', 'id', [], max(0, $now-300)],
-            ['OrderDetail', 'aftersale_push_detail_changed', 'oa.order_detail_id', 'id', [], max(0, $now-300)],
-            ['WangdianSyncLog', 'aftersale_push_order_pushed', 'oa.order_id', 'order_id', [
+            ['OrderAftersale', 'aftersale_push_added', 'oa.id', 'id', 'add_time', [], 0],
+            ['OrderAftersale', 'aftersale_push_changed', 'oa.id', 'id', 'upd_time', [], 0],
+            ['Order', 'aftersale_push_order_changed', 'oa.order_id', 'id', 'upd_time', [], max(0, $now-300)],
+            ['OrderDetail', 'aftersale_push_detail_changed', 'oa.order_detail_id', 'id', 'upd_time', [], max(0, $now-300)],
+            ['WangdianSyncLog', 'aftersale_push_order_pushed', 'oa.order_id', 'order_id', 'upd_time', [
                 'business_type'=>'order_push',
                 'status'=>1,
             ], max(0, $now-300)],
-        ] as [$sourceTable, $cursorName, $aftersaleLink, $sourceValueField, $sourceWhere, $initialTime])
+        ] as [$sourceTable, $cursorName, $aftersaleLink, $sourceValueField, $sourceTimeField, $sourceWhere, $initialTime])
         {
             if(count($result) >= $limit)
             {
@@ -134,11 +135,14 @@ trait WangDianAftersaleStoreWorkflow
             $sourceRows = Db::name($sourceTable)
                 ->where($sourceWhere)
                 ->whereRaw(
-                    '(upd_time > '.(int)$cursor['cursor_time']
-                    .' OR (upd_time = '.(int)$cursor['cursor_time'].' AND id > '.(int)$cursor['cursor_value'].'))'
+                    '(('.$sourceTimeField.' > '.(int)$cursor['cursor_time']
+                    .' OR ('.$sourceTimeField.' = '.(int)$cursor['cursor_time'].' AND id > '.(int)$cursor['cursor_value'].'))'
+                    .' AND '.$sourceTimeField.' < '.$now.')'
                 )
-                ->field($sourceValueField === 'id' ? 'id,upd_time' : 'id,upd_time,'.$sourceValueField)
-                ->order('upd_time asc,id asc')
+                ->field($sourceValueField === 'id'
+                    ? 'id,'.$sourceTimeField.' AS source_time'
+                    : 'id,'.$sourceTimeField.' AS source_time,'.$sourceValueField)
+                ->order($sourceTimeField.' asc,id asc')
                 ->limit(50)
                 ->select()
                 ->toArray();
@@ -160,12 +164,18 @@ trait WangDianAftersaleStoreWorkflow
                     $completedSource = false;
                     break;
                 }
-                $lastSourceTime = (int)$sourceRow['upd_time'];
+                $lastSourceTime = (int)$sourceRow['source_time'];
                 $this->saveSyncCursor($cursorName, (int)$sourceRow['id'], $lastSourceTime, $now);
             }
             if($completedSource && count($sourceRows) < 50)
             {
-                $this->saveSyncCursor($cursorName, 0, max($now, $lastSourceTime), $now);
+                $completed = WangDianSyncCursorWindow::completedBefore($now);
+                $this->saveSyncCursor(
+                    $cursorName,
+                    $completed['cursor_value'],
+                    max($completed['cursor_time'], $lastSourceTime),
+                    $now
+                );
             }
         }
 
