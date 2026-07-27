@@ -188,12 +188,13 @@ trait WangDianAftersaleSyncWorkflow
                     $modified = trim((string)($record['modified'] ?? ''));
                     $processStatus = (int)($record['process_status'] ?? 0);
                     $businessKey = $sourceNo.':'.$processStatus.':'.$modified.':'.($autoProcess ? 'apply' : 'observe');
+                    $attemptTime = $this->now();
                     if(!$this->store()->startAttempt('aftersale_status', $businessKey, 0, [
                         'aftersale_no'=>$sourceNo,
                         'erp_refund_id'=>(string)($record['refund_id'] ?? ''),
                         'process_status'=>$processStatus,
                         'modified'=>$modified,
-                    ], $now))
+                    ], $attemptTime))
                     {
                         $result['skipped']++;
                         continue;
@@ -205,10 +206,10 @@ trait WangDianAftersaleSyncWorkflow
                             $autoProcess,
                             min(2, max(0, (int)($this->config['aftersale_refundment'] ?? 0)))
                         );
-                        $this->store()->markSuccess('aftersale_status', $businessKey, $this->responseSummary($response), $now);
+                        $this->store()->markSuccess('aftersale_status', $businessKey, $this->responseSummary($response), $attemptTime);
                         $result['success']++;
                     } catch(\Throwable $e) {
-                        $this->store()->markFailure('aftersale_status', $businessKey, $this->safeError($e), $now);
+                        $this->store()->markFailure('aftersale_status', $businessKey, $this->safeError($e), $attemptTime);
                         $result['failed']++;
                     }
                 }
@@ -254,6 +255,14 @@ trait WangDianAftersaleSyncWorkflow
         bool $allowImplicitSingleSuccess = false
     ): bool
     {
+        $attemptedRefunds = array_fill_keys(array_column($attempts, 'refund_no'), true);
+        foreach(array_keys($errors) as $refundNo)
+        {
+            if($refundNo !== '*' && !isset($attemptedRefunds[$refundNo]))
+            {
+                return false;
+            }
+        }
         if(!array_key_exists('new_count', $response) && !array_key_exists('chg_count', $response))
         {
             return !empty($errors) || ($allowImplicitSingleSuccess && count($attempts) === 1);

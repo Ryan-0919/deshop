@@ -13,6 +13,7 @@ final class WangDianStore implements WangDianStoreInterface
     private const PROCESSING_LEASE_SECONDS = 3600;
     private const MAX_RETRY_SECONDS = 3600;
     private const ORDER_RECHECK_SECONDS = 86400;
+    private const AFTERSALE_RECHECK_SECONDS = 86400;
 
     private function truncate(string $value, int $maxCharacters): string
     {

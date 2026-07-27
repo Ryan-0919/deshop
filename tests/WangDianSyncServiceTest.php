@@ -398,6 +398,29 @@ assertWangDianSyncSame(2, count($client->requests), 'A count-less response witho
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
+foreach([21, 22] as $id)
+{
+    $store->aftersales[] = [
+        'key'=>$id.':2:1700000206',
+        'aftersale'=>['id'=>$id, 'type'=>0, 'status'=>2, 'price'=>'1.00', 'number'=>0, 'reason'=>'Refund', 'apply_time'=>1700000000],
+        'order'=>['id'=>$id, 'order_no'=>'O'.$id, 'user_id'=>9, 'delivery_time'=>0],
+        'detail'=>['id'=>$id * 10, 'buy_number'=>1],
+    ];
+}
+$client->responses['sales_refund_push.php'][] = [
+    'code'=>0,
+    'message'=>'Unknown item error',
+    'errors'=>[['refund_no'=>'SHOPXO-AS-999', 'error'=>'Unknown refund']],
+];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK', 'new_count'=>1, 'chg_count'=>0];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK', 'new_count'=>0, 'chg_count'=>1];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+assertWangDianSyncSame(2, $result['success'], 'Unknown ERP error identifiers must force individually verified retries');
+assertWangDianSyncSame(3, count($client->requests), 'An error for an unattempted refund must never validate the batch response');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
 $client->responses['refund_query.php'][] = [
     'code'=>0,
     'total_count'=>3,

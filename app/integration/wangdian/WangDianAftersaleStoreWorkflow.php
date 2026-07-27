@@ -12,23 +12,38 @@ trait WangDianAftersaleStoreWorkflow
         $chunkSize = min(500, max(100, $limit*5));
         $lastAftersaleId = 0;
         $result = [];
-        $pushedOrders = Db::name('WangdianSyncLog')
-            ->where(['business_type'=>'order_push', 'status'=>1])
-            ->field('order_id')
-            ->group('order_id')
+        $pushedOrderExists = Db::name('WangdianSyncLog')->alias('opl')
+            ->whereRaw('opl.order_id=o.id')
+            ->where(['opl.business_type'=>'order_push', 'opl.status'=>1])
+            ->field('1')
+            ->limit(1)
             ->buildSql();
+        $latestAftersaleCheck = Db::name('WangdianSyncLog')->alias('wac2')
+            ->whereRaw("wac2.business_key LIKE CONCAT(oa.id, ':%')")
+            ->where(['wac2.business_type'=>'aftersale_push', 'wac2.status'=>1])
+            ->field('wac2.id')
+            ->order('wac2.upd_time desc,wac2.id desc')
+            ->limit(1)
+            ->buildSql();
+        $recheckBefore = max(0, $now-self::AFTERSALE_RECHECK_SECONDS);
         while(count($result) < $limit)
         {
             $rows = Db::name('OrderAftersale')->alias('oa')
                 ->join('order o', 'o.id=oa.order_id')
                 ->join('order_detail od', 'od.id=oa.order_detail_id')
-                ->join([$pushedOrders=>'opl'], 'opl.order_id=o.id')
+                ->leftJoin('wangdian_sync_log wac', 'wac.id='.$latestAftersaleCheck)
                 ->where([
                     ['oa.id', '>', $lastAftersaleId],
                     ['o.order_model', '=', 0],
                     ['oa.type', 'in', [0, 1]],
                     ['oa.status', 'between', [0, 5]],
                 ])
+                ->whereRaw('EXISTS '.$pushedOrderExists)
+                ->whereRaw(
+                    '(wac.id IS NULL'
+                    .' OR GREATEST(COALESCE(oa.add_time,0),COALESCE(oa.upd_time,0),COALESCE(o.add_time,0),COALESCE(o.upd_time,0),COALESCE(od.add_time,0),COALESCE(od.upd_time,0)) > wac.upd_time'
+                    .' OR wac.upd_time <= '.$recheckBefore.')'
+                )
                 ->field('oa.*,o.id AS shopxo_order_id,o.order_no AS shopxo_order_no,o.user_id AS shopxo_user_id,o.delivery_time AS shopxo_delivery_time,od.id AS shopxo_detail_id,od.buy_number AS shopxo_buy_number')
                 ->order('oa.id asc')
                 ->limit($chunkSize)
@@ -64,6 +79,7 @@ trait WangDianAftersaleStoreWorkflow
                 'business_type'=>'aftersale_push',
                 'business_key'=>array_keys($candidates),
             ])->column('*', 'business_key');
+            $checkedKeys = [];
             foreach($candidates as $key=>$candidate)
             {
                 $log = $logs[$key] ?? [];
@@ -77,7 +93,17 @@ trait WangDianAftersaleStoreWorkflow
                     {
                         break;
                     }
+                } elseif((int)$log['status'] === 1) {
+                    $checkedKeys[] = $key;
                 }
+            }
+            if(!empty($checkedKeys))
+            {
+                Db::name('WangdianSyncLog')->where([
+                    'business_type'=>'aftersale_push',
+                    'business_key'=>$checkedKeys,
+                    'status'=>1,
+                ])->update(['upd_time'=>$now]);
             }
             if(count($rows) < $chunkSize)
             {
