@@ -61,11 +61,17 @@ final class WangDianClient implements WangDianClientInterface
         {
             throw new \RuntimeException('Wangdiantong returned an invalid response.');
         }
-        if((int)($response['code'] ?? -1) !== 0)
+        $code = $response['code'] ?? null;
+        $isSuccess = (is_int($code) && $code === 0) || (is_string($code) && $code === '0');
+        if(!$isSuccess)
         {
             $message = trim((string)($response['message'] ?? ''));
+            $isValidErrorCode = (is_int($code) && $code !== 0)
+                || (is_string($code) && preg_match('/^-?[1-9]\d*$/D', $code) === 1);
             throw new WangDianApiException(
-                $message === '' ? 'Wangdiantong request was rejected.' : $message,
+                !$isValidErrorCode
+                    ? 'Wangdiantong returned an invalid response code.'
+                    : ($message === '' ? 'Wangdiantong request was rejected.' : $message),
                 $response
             );
         }

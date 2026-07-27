@@ -383,6 +383,21 @@ assertWangDianSyncSame(3, count($client->requests), 'An ambiguous batch response
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
+$store->aftersales = [[
+    'key'=>'20:2:1700000205',
+    'aftersale'=>['id'=>20, 'type'=>0, 'status'=>2, 'price'=>'1.00', 'number'=>0, 'reason'=>'Refund', 'apply_time'=>1700000000],
+    'order'=>['id'=>20, 'order_no'=>'O20', 'user_id'=>9, 'delivery_time'=>0],
+    'detail'=>['id'=>200, 'buy_number'=>1],
+]];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK'];
+$client->responses['sales_refund_push.php'][] = ['code'=>0, 'message'=>'OK'];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushAftersales();
+assertWangDianSyncSame(1, $result['success'], 'An official count-less response must be verified with an individual idempotent retry');
+assertWangDianSyncSame(2, count($client->requests), 'A count-less response without item results must never mark a batch successful directly');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
 $client->responses['refund_query.php'][] = [
     'code'=>0,
     'total_count'=>3,
@@ -426,7 +441,7 @@ for($id = 1; $id <= 40; $id++)
     $pageOne[] = ['refund_id'=>(string)$id, 'src_no'=>'SHOPXO-AS-'.$id, 'process_status'=>30, 'modified'=>'2026-07-25 11:00:00'];
 }
 $client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>41, 'refunds'=>$pageOne];
-$client->responses['refund_query.php'][] = ['code'=>0, 'refunds'=>[
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>41, 'refunds'=>[
     ['refund_id'=>'41', 'src_no'=>'SHOPXO-AS-41', 'process_status'=>30, 'modified'=>'2026-07-25 11:00:01'],
 ]];
 $config = wangDianTestConfig();
@@ -435,5 +450,76 @@ $service = new WangDianSyncService($config, $client, $store, static fn(): int =>
 $result = $service->syncAftersales();
 assertWangDianSyncSame(41, $result['success'], 'Refund pagination must drain the complete ERP result set');
 assertWangDianSyncSame(2, count($client->requests), 'Refund pagination must continue beyond a configured first-page cap');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['refund_query.php'][] = [
+    'code'=>0,
+    'total_count'=>'40garbage',
+    'refunds'=>$pageOne,
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(0, $result['success'], 'A malformed refund total must be rejected before applying the page');
+assertWangDianSyncSame(1, $result['failed'], 'A malformed refund total must fail the synchronization run');
+assertWangDianSyncSame([], $store->aftersaleStatuses, 'A malformed refund page must not mutate local aftersales');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$duplicatePage = ['code'=>0, 'total_count'=>80, 'refunds'=>$pageOne];
+$client->responses['refund_query.php'][] = $duplicatePage;
+$client->responses['refund_query.php'][] = $duplicatePage;
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'A repeated ERP page must not be applied twice');
+assertWangDianSyncSame(1, $result['failed'], 'A repeated ERP page must stop the run as an upstream pagination failure');
+assertWangDianSyncSame(2, count($client->requests), 'Repeated refund pages must be detected immediately');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['refund_query.php'][] = ['code'=>0, 'refunds'=>$pageOne];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(0, $result['success'], 'A full refund page without total_count must not be applied');
+assertWangDianSyncSame(1, $result['failed'], 'A missing refund total must fail instead of looping indefinitely');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$incompletePage = array_slice($pageOne, 0, 20);
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>80, 'refunds'=>$incompletePage];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(0, $result['success'], 'A short refund page below total_count must not be accepted as complete');
+assertWangDianSyncSame(1, $result['failed'], 'An incomplete short refund page must fail the run');
+assertWangDianSyncSame([], $store->aftersaleStatuses, 'An incomplete short page must be rejected before local mutations');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$client->responses['refund_query.php'][] = ['code'=>0, 'total_count'=>41, 'refunds'=>$pageOne];
+$client->responses['refund_query.php'][] = ['code'=>0, 'refunds'=>[
+    ['refund_id'=>'41', 'src_no'=>'SHOPXO-AS-41', 'process_status'=>30, 'modified'=>'2026-07-25 11:00:01'],
+]];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$result = $service->syncAftersales();
+assertWangDianSyncSame(40, $result['success'], 'Records from validated pages may remain applied when a later page is malformed');
+assertWangDianSyncSame(1, $result['failed'], 'Every refund page must repeat a valid total_count');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
+$store->orders = [wangDianOrderFixture(19, 'SKU-19')];
+$client->responses['trade_push.php'][] = [
+    'code'=>0,
+    'message'=>'Rejected receiver_mobile=13800138000, address: Beijing Road 1',
+    'new_count'=>0,
+    'chg_count'=>0,
+    'errors'=>[['tid'=>'O19', 'error'=>'联系电话：13912345678；收货地址：Shanghai Road 2']],
+];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1784948400);
+$service->pushOrders();
+$loggedFailure = $store->failures[0] ?? [];
+assertWangDianSyncSame(false, str_contains($loggedFailure[2] ?? '', '13912345678'), 'ERP item errors must mask phone numbers before logging');
+assertWangDianSyncSame(false, str_contains($loggedFailure[2] ?? '', 'Shanghai Road 2'), 'ERP item errors must mask addresses before logging');
+assertWangDianSyncSame(false, str_contains($loggedFailure[3]['message'] ?? '', '13800138000'), 'ERP response summaries must mask phone numbers');
+assertWangDianSyncSame(false, str_contains($loggedFailure[3]['message'] ?? '', 'Beijing Road 1'), 'ERP response summaries must mask addresses');
 
 echo "WangDianSyncService tests passed\n";

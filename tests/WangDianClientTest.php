@@ -60,4 +60,27 @@ try
     assertWangDianClientSame(1001, $e instanceof WangDianApiException ? $e->response()['code'] : null, 'The structured error response must retain its code');
 }
 
+foreach(['"abc"', '""', 'false', 'null'] as $invalidCode)
+{
+    $transport->response = '{"code":'.$invalidCode.',"message":"malformed response"}';
+    try
+    {
+        $client->request('trade_push.php', ['shop_no' => 'bad', 'trade_list' => '[]']);
+        throw new RuntimeException('A malformed Wangdiantong response code must raise an exception');
+    } catch(WangDianApiException $e) {
+        assertWangDianClientSame(
+            'Wangdiantong returned an invalid response code.',
+            $e->getMessage(),
+            'Only integer zero or the canonical string zero may represent success'
+        );
+    }
+}
+
+$transport->response = '{"code":"0","message":"success"}';
+assertWangDianClientSame(
+    'success',
+    $client->request('trade_push.php', ['shop_no' => 'ok', 'trade_list' => '[]'])['message'] ?? null,
+    'The canonical string zero returned by Wangdiantong must remain compatible'
+);
+
 echo "WangDianClient tests passed\n";
