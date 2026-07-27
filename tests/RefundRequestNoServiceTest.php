@@ -19,10 +19,14 @@ assertRefundRequestNoSame('SHOPXO-AS-12', $first, 'An aftersale must have a stab
 assertRefundRequestNoSame($first, $retry, 'Retrying the same aftersale must reuse its payment refund request number');
 assertRefundRequestNoSame(
     'SHOPXO-AS-12',
-    RefundRequestNoService::Provided(['refund_no'=>' SHOPXO-AS-12 ']),
+    RefundRequestNoService::Resolve(['refund_no'=>' SHOPXO-AS-12 '], 'legacy-random'),
     'Payment plugins must prefer the provided stable refund request number'
 );
-assertRefundRequestNoSame('', RefundRequestNoService::Provided([]), 'Legacy callers without a request number must retain plugin fallback behavior');
+assertRefundRequestNoSame(
+    'legacy-random',
+    RefundRequestNoService::Resolve([], 'legacy-random'),
+    'Legacy callers without a request number must retain plugin fallback behavior'
+);
 
 try
 {

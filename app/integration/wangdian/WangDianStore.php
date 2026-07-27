@@ -354,9 +354,7 @@ final class WangDianStore implements WangDianStoreInterface
         {
             throw new \RuntimeException('ShopXO aftersale '.$aftersaleId.' has no successful Wangdiantong push record.');
         }
-        WangDianAftersaleMapper::assertRemoteLink($record, $aftersale, $order, $detail);
-        $processStatus = (int)($record['process_status'] ?? 0);
-        $action = WangDianAftersaleStatePolicy::action($processStatus);
+        $action = WangDianAftersaleMapper::assertRemoteLink($record, $aftersale, $order, $detail);
         if(!$autoProcess)
         {
             return $aftersaleId;

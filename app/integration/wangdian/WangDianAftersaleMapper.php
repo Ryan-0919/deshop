@@ -80,7 +80,7 @@ final class WangDianAftersaleMapper
         return $result;
     }
 
-    public static function assertRemoteLink(array $record, array $aftersale, array $order, array $detail): void
+    public static function assertRemoteLink(array $record, array $aftersale, array $order, array $detail): string
     {
         $orderNo = trim((string)($aftersale['order_no'] ?? ''));
         $detailId = (int)($aftersale['order_detail_id'] ?? 0);
@@ -99,16 +99,24 @@ final class WangDianAftersaleMapper
         {
             throw new \RuntimeException('ERP refund type does not match the ShopXO aftersale.');
         }
-        if(!array_key_exists('refund_amount', $record)
-            || self::moneyToCents($record['refund_amount']) !== self::moneyToCents($aftersale['price'] ?? 0))
+        $action = WangDianAftersaleStatePolicy::action($record['process_status'] ?? null);
+        $localAmount = self::moneyToCents($aftersale['price'] ?? null);
+        $remoteAmount = array_key_exists('refund_amount', $record)
+            ? self::moneyToCents($record['refund_amount'])
+            : null;
+        if($localAmount === null || $remoteAmount === null || $remoteAmount !== $localAmount)
         {
             throw new \RuntimeException('ERP refund amount does not match the ShopXO aftersale.');
         }
-        if((int)($record['process_status'] ?? 0) === 90
-            && (!array_key_exists('actual_refund_amount', $record)
-                || self::moneyToCents($record['actual_refund_amount']) !== self::moneyToCents($aftersale['price'] ?? 0)))
+        if($action === 'complete')
         {
-            throw new \RuntimeException('ERP actual refund amount does not match the completed ShopXO aftersale.');
+            $actualAmount = array_key_exists('actual_refund_amount', $record)
+                ? self::moneyToCents($record['actual_refund_amount'])
+                : null;
+            if($actualAmount === null || $actualAmount !== $localAmount)
+            {
+                throw new \RuntimeException('ERP actual refund amount does not match the completed ShopXO aftersale.');
+            }
         }
 
         $lines = $record['refund_order_list'] ?? null;
@@ -121,7 +129,7 @@ final class WangDianAftersaleMapper
         {
             throw new \RuntimeException('ERP refund is linked to an unexpected ShopXO order detail.');
         }
-        if((int)($record['process_status'] ?? 0) === 90)
+        if($action === 'complete')
         {
             $expectedQuantity = $localType === 1
                 ? (int)($aftersale['number'] ?? 0)
@@ -137,6 +145,7 @@ final class WangDianAftersaleMapper
                 throw new \RuntimeException('ERP refund quantity does not match the completed ShopXO aftersale.');
             }
         }
+        return $action;
     }
 
     private static function formatTimestamp(int $timestamp): string
@@ -152,12 +161,45 @@ final class WangDianAftersaleMapper
 
     private static function formatMoney($value): string
     {
-        return number_format(self::moneyToCents($value) / 100, 2, '.', '');
+        $cents = self::moneyToCents($value);
+        if($cents === null)
+        {
+            throw new \InvalidArgumentException('ShopXO aftersale refund amount must be a valid decimal value.');
+        }
+        return number_format($cents / 100, 2, '.', '');
     }
 
-    private static function moneyToCents($value): int
+    private static function moneyToCents($value): ?int
     {
-        return (int)round((float)$value * 100);
+        if(!is_int($value) && !is_float($value) && !is_string($value))
+        {
+            return null;
+        }
+        $text = trim((string)$value);
+        if(preg_match('/^(\d+)(?:\.(\d+))?$/D', $text, $matches) !== 1)
+        {
+            return null;
+        }
+
+        $fraction = $matches[2] ?? '';
+        if(strlen($fraction) > 2 && trim(substr($fraction, 2), '0') !== '')
+        {
+            return null;
+        }
+        $fraction = str_pad(substr($fraction, 0, 2), 2, '0');
+        $whole = ltrim($matches[1], '0');
+        $whole = $whole === '' ? '0' : $whole;
+        $fractionCents = (int)$fraction;
+        if(strlen($whole) > strlen((string)PHP_INT_MAX))
+        {
+            return null;
+        }
+        $wholeValue = (int)$whole;
+        if($wholeValue > intdiv(PHP_INT_MAX - $fractionCents, 100))
+        {
+            return null;
+        }
+        return ($wholeValue * 100) + $fractionCents;
     }
 
     private static function cleanText(string $value): string

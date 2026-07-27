@@ -15,6 +15,7 @@ function assertWangDianAftersaleActionSame($expected, $actual, string $message):
 assertWangDianAftersaleActionSame('cancel', WangDianAftersaleStatePolicy::action(10), 'ERP cancellation must cancel the ShopXO aftersale');
 assertWangDianAftersaleActionSame('refuse', WangDianAftersaleStatePolicy::action(40), 'ERP refusal must refuse the ShopXO aftersale');
 assertWangDianAftersaleActionSame('complete', WangDianAftersaleStatePolicy::action(90), 'ERP completion must complete the ShopXO aftersale');
+assertWangDianAftersaleActionSame('complete', WangDianAftersaleStatePolicy::action('90'), 'A canonical numeric ERP status string must retain its meaning');
 assertWangDianAftersaleActionSame('approve', WangDianAftersaleStatePolicy::action(30), 'ERP approval progress must approve a return request');
 assertWangDianAftersaleActionSame('wait', WangDianAftersaleStatePolicy::action(15), 'An ERP waiting status must not change the ShopXO aftersale');
 

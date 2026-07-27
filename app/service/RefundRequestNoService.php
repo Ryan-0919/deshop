@@ -13,8 +13,9 @@ final class RefundRequestNoService
         return 'SHOPXO-AS-'.$aftersaleId;
     }
 
-    public static function Provided(array $params): string
+    public static function Resolve(array $params, string $fallback): string
     {
-        return trim((string)($params['refund_no'] ?? ''));
+        $provided = trim((string)($params['refund_no'] ?? ''));
+        return $provided === '' ? $fallback : $provided;
     }
 }

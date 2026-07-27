@@ -27,12 +27,24 @@ final class WangDianAftersaleStatePolicy
         90 => 'complete',
     ];
 
-    public static function action(int $processStatus): string
+    public static function action($processStatus): string
     {
-        if(!array_key_exists($processStatus, self::ACTIONS))
+        if(is_int($processStatus))
         {
-            throw new \UnexpectedValueException('Unsupported Wangdiantong aftersale process status '.$processStatus.'.');
+            $status = $processStatus;
+        } elseif(is_string($processStatus) && preg_match('/^(?:0|[1-9]\d*)$/D', $processStatus) === 1) {
+            $status = (int)$processStatus;
+        } else {
+            $display = is_scalar($processStatus) || $processStatus === null
+                ? var_export($processStatus, true)
+                : gettype($processStatus);
+            throw new \UnexpectedValueException('Invalid Wangdiantong aftersale process status '.$display.'.');
         }
-        return self::ACTIONS[$processStatus];
+
+        if(!array_key_exists($status, self::ACTIONS))
+        {
+            throw new \UnexpectedValueException('Unsupported Wangdiantong aftersale process status '.$status.'.');
+        }
+        return self::ACTIONS[$status];
     }
 }
