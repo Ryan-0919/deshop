@@ -29,9 +29,9 @@ assertWangDianSame(
 );
 
 assertWangDianSame(
-    '6940afb41cd63368794c20a2c38d362a',
+    'a28753ce65da40820980988b1d53926d',
     WangDianSigner::sign(['name' => '韵达', 'timestamp' => '1470042310'], 'secret'),
-    'The signer must count UTF-8 bytes consistently'
+    'The signer must count UTF-8 characters as required by Wangdiantong'
 );
 
 echo "WangDianSigner tests passed\n";

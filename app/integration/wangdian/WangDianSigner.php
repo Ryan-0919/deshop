@@ -18,8 +18,8 @@ final class WangDianSigner
 
             $key = (string)$key;
             $value = $value === null ? '' : (string)$value;
-            $segments[] = str_pad((string)strlen($key), 2, '0', STR_PAD_LEFT).'-'.$key
-                .':'.str_pad((string)strlen($value), 4, '0', STR_PAD_LEFT).'-'.$value;
+            $segments[] = str_pad((string)mb_strlen($key, 'UTF-8'), 2, '0', STR_PAD_LEFT).'-'.$key
+                .':'.str_pad((string)mb_strlen($value, 'UTF-8'), 4, '0', STR_PAD_LEFT).'-'.$value;
         }
 
         return md5(implode(';', $segments).$appSecret);
