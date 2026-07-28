@@ -100,6 +100,26 @@ assertWangDianOrderSame(
     'Repeated SKU lines must remain valid and use distinct detail identifiers'
 );
 
+$fullyRefundedTrade = WangDianOrderMapper::map(
+    [
+        'order_no'=>'REFUNDED-1', 'user_id'=>1, 'status'=>6, 'pay_status'=>2,
+        'add_time'=>1767225600, 'pay_time'=>1767225660, 'pay_price'=>'10.00',
+        'total_price'=>'10.00', 'refund_price'=>'10.00', 'returned_quantity'=>1,
+    ],
+    [
+        'name'=>'Test', 'tel'=>'13800138000', 'province_name'=>'Beijing',
+        'city_name'=>'Beijing', 'county_name'=>'Haidian', 'address'=>'Road 1',
+    ],
+    [[
+        'id'=>401, 'goods_id'=>1, 'title'=>'Item', 'price'=>'10.00',
+        'total_price'=>'10.00', 'buy_number'=>1, 'coding'=>'SPU-1',
+        'spec_coding'=>'SKU-REFUNDED', 'refund_price'=>'10.00', 'returned_quantity'=>1,
+    ]]
+);
+assertWangDianOrderSame(80, $fullyRefundedTrade['trade_status'] ?? null, 'A fully refunded paid order must update the ERP order to refunded');
+assertWangDianOrderSame(80, $fullyRefundedTrade['order_list'][0]['status'] ?? null, 'Every line of a fully refunded order must be closed');
+assertWangDianOrderSame(5, $fullyRefundedTrade['order_list'][0]['refund_status'] ?? null, 'Every line of a fully refunded order must show refund success');
+
 try
 {
     WangDianOrderMapper::map(

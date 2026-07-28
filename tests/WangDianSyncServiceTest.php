@@ -225,6 +225,26 @@ assertWangDianSyncSame(
 
 $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
+$refundedOrder = wangDianOrderFixture(9, 'SKU-9');
+$refundedOrder['key'] = '9:fully-refunded';
+$refundedOrder['order']['status'] = 6;
+$refundedOrder['order']['pay_status'] = 2;
+$refundedOrder['order']['refund_price'] = '10.00';
+$refundedOrder['order']['returned_quantity'] = 1;
+$refundedOrder['details'][0]['refund_price'] = '10.00';
+$refundedOrder['details'][0]['returned_quantity'] = 1;
+$store->orders = [$refundedOrder];
+$client->responses['trade_push.php'][] = ['code'=>0, 'message'=>'Updated', 'new_count'=>0, 'chg_count'=>1];
+$service = new WangDianSyncService(wangDianTestConfig(), $client, $store, static fn(): int => 1700001000);
+$result = $service->pushOrders();
+$refundedTrade = json_decode($client->requests[0]['params']['trade_list'] ?? '', true)[0] ?? [];
+
+assertWangDianSyncSame(1, $result['success'], 'A fully refunded order revision must be synchronized to ERP');
+assertWangDianSyncSame(80, $refundedTrade['trade_status'] ?? null, 'The ERP original order must be updated to fully refunded');
+assertWangDianSyncSame(5, $refundedTrade['order_list'][0]['refund_status'] ?? null, 'The ERP original line must show refund success');
+
+$client = new FakeWangDianClient();
+$store = new FakeWangDianStore();
 $client->responses['logistics_sync_query.php'][] = [
     'code'=>0,
     'trades'=>[

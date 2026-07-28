@@ -34,11 +34,10 @@ trait WangDianOrderStoreWorkflow
                 ->where([
                     ['o.id', '>', $lastOrderId],
                     ['o.order_model', '=', 0],
-                    ['o.status', '=', 2],
-                    ['o.pay_status', '=', 1],
                     ['o.pay_time', '>=', $syncFrom],
                     ['o.is_delete_time', '=', 0],
                 ])
+                ->whereRaw('((o.status=2 AND o.pay_status=1) OR (o.status=6 AND o.pay_status=2))')
                 ->whereRaw(
                     '(woc.order_id IS NULL'
                     .' OR GREATEST(COALESCE(o.add_time,0),COALESCE(o.upd_time,0),COALESCE(oa.add_time,0),COALESCE(oa.upd_time,0)) >= woc.upd_time'

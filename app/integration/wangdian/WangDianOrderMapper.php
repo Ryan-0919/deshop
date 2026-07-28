@@ -7,15 +7,16 @@ final class WangDianOrderMapper
     {
         return [
             'order'=>[
-                'id', 'order_no', 'user_id', 'add_time', 'pay_time', 'user_note',
+                'id', 'order_no', 'user_id', 'status', 'pay_status', 'add_time', 'pay_time', 'user_note',
                 'increase_price', 'pay_price', 'total_price', 'preferential_price',
+                'refund_price', 'returned_quantity',
             ],
             'address'=>[
                 'order_id', 'name', 'tel', 'province_name', 'city_name', 'county_name', 'address',
             ],
             'detail'=>[
                 'id', 'order_id', 'goods_id', 'title', 'coding', 'spec_coding',
-                'buy_number', 'price', 'total_price', 'spec',
+                'buy_number', 'price', 'total_price', 'refund_price', 'returned_quantity', 'spec',
             ],
         ];
     }
@@ -55,14 +56,15 @@ final class WangDianOrderMapper
 
         $discountCents = max(0, self::moneyToCents($order['preferential_price'] ?? 0));
         $discounts = self::allocateDiscount($lineCents, $discountCents);
+        $fullyRefunded = self::isFullyRefunded($order, $details);
         $orderList = [];
         foreach($details as $index => $detail)
         {
             $sku = trim((string)$detail['spec_coding']);
             $orderList[] = [
                 'oid' => (string)$order['order_no'].'-'.(string)($detail['id'] ?? $index),
-                'status' => 30,
-                'refund_status' => 0,
+                'status' => $fullyRefunded ? 80 : 30,
+                'refund_status' => $fullyRefunded ? 5 : 0,
                 'goods_id' => (string)($detail['goods_id'] ?? ''),
                 'spec_id' => $sku,
                 'goods_no' => trim((string)($detail['coding'] ?? '')),
@@ -83,7 +85,7 @@ final class WangDianOrderMapper
 
         return [
             'tid' => (string)$order['order_no'],
-            'trade_status' => 30,
+            'trade_status' => $fullyRefunded ? 80 : 30,
             'pay_status' => 2,
             'delivery_term' => 1,
             'trade_time' => self::formatTimestamp((int)($order['add_time'] ?? 0)),
@@ -103,6 +105,23 @@ final class WangDianOrderMapper
             'other_amount' => '0.00',
             'order_list' => $orderList,
         ];
+    }
+
+    private static function isFullyRefunded(array $order, array $details): bool
+    {
+        if((int)($order['status'] ?? 0) !== 6 || (int)($order['pay_status'] ?? 0) !== 2)
+        {
+            return false;
+        }
+        foreach($details as $detail)
+        {
+            $quantity = (int)($detail['buy_number'] ?? 0);
+            if($quantity <= 0 || (int)($detail['returned_quantity'] ?? 0) < $quantity)
+            {
+                return false;
+            }
+        }
+        return !empty($details);
     }
 
     private static function allocateDiscount(array $lineCents, int $discountCents): array
