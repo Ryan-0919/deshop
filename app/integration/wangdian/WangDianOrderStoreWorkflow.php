@@ -22,7 +22,7 @@ trait WangDianOrderStoreWorkflow
         $changedDetails = Db::name('OrderDetail')->alias('odc')
             ->whereRaw('odc.order_id=o.id')
             ->whereRaw('GREATEST(odc.add_time,odc.upd_time)>=woc.upd_time')
-            ->field('1')
+            ->field('odc.id')
             ->limit(1)
             ->buildSql();
         $recheckBefore = max(0, $now-self::ORDER_RECHECK_SECONDS);

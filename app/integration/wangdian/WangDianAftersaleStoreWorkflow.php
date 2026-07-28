@@ -14,7 +14,7 @@ trait WangDianAftersaleStoreWorkflow
         $pushedOrderExists = Db::name('WangdianSyncLog')->alias('opl')
             ->whereRaw('opl.order_id=o.id')
             ->where(['opl.business_type'=>'order_push', 'opl.status'=>1])
-            ->field('1')
+            ->field('opl.id')
             ->limit(1)
             ->buildSql();
 
