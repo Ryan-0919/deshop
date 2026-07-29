@@ -4,6 +4,7 @@ require dirname(__DIR__).'/vendor/autoload.php';
 
 use app\integration\wangdian\WangDianClientInterface;
 use app\integration\wangdian\WangDianApiException;
+use app\integration\wangdian\WangDianExpressMap;
 use app\integration\wangdian\WangDianStoreInterface;
 use app\integration\wangdian\WangDianSyncService;
 
@@ -83,10 +84,7 @@ final class FakeWangDianStore implements WangDianStoreInterface
     public function applyLogistics(array $record, array $expressMap): int
     {
         $this->logistics[] = $record;
-        if(($record['rec_id'] ?? '') === 'bad')
-        {
-            throw new RuntimeException('Unknown express mapping.');
-        }
+        WangDianExpressMap::resolve($expressMap, (string)($record['logistics_code_erp'] ?? ''));
         return 12;
     }
 
@@ -129,7 +127,7 @@ function wangDianTestConfig(): array
         'aftersale_query_lookback' => 604800,
         'aftersale_auto_process' => false,
         'aftersale_refundment' => 0,
-        'express_map' => ['YUNDA'=>6],
+        'express_map' => ['YDKD001'=>6],
     ];
 }
 
@@ -248,7 +246,7 @@ $store = new FakeWangDianStore();
 $client->responses['logistics_sync_query.php'][] = [
     'code'=>0,
     'trades'=>[
-        ['rec_id'=>'ok', 'tid'=>'O1', 'logistics_no'=>'YD1', 'logistics_code_erp'=>'YUNDA'],
+        ['rec_id'=>'ok', 'tid'=>'O1', 'logistics_no'=>'YD1', 'logistics_code_erp'=>'  ydkd001  '],
         ['rec_id'=>'bad', 'tid'=>'O2', 'logistics_no'=>'YD2', 'logistics_code_erp'=>'UNKNOWN'],
     ],
 ];
@@ -265,7 +263,7 @@ $client = new FakeWangDianClient();
 $store = new FakeWangDianStore();
 $client->responses['logistics_sync_query.php'][] = [
     'code'=>0,
-    'trades'=>[['rec_id'=>'ack-logistics', 'tid'=>'O1', 'logistics_no'=>'YD1', 'logistics_code_erp'=>'YUNDA']],
+    'trades'=>[['rec_id'=>'ack-logistics', 'tid'=>'O1', 'logistics_no'=>'YD1', 'logistics_code_erp'=>'YDKD001']],
 ];
 $client->responses['logistics_sync_ack.php'][] = [
     'code'=>0,

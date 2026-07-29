@@ -16,16 +16,7 @@ trait WangDianLogisticsStoreWorkflow
             throw new \InvalidArgumentException('The logistics record is missing tid, logistics_no or logistics_code_erp.');
         }
 
-        $normalizedMap = [];
-        foreach($expressMap as $code=>$id)
-        {
-            $normalizedMap[strtoupper(trim((string)$code))] = (int)$id;
-        }
-        $expressId = $normalizedMap[strtoupper($expressCode)] ?? 0;
-        if($expressId <= 0)
-        {
-            throw new \RuntimeException('No ShopXO express mapping exists for ERP code '.$expressCode.'.');
-        }
+        $expressId = WangDianExpressMap::resolve($expressMap, $expressCode);
 
         $order = Db::name('Order')->where(['order_no'=>$orderNo])->field('id,status,user_id')->find();
         if(empty($order))
