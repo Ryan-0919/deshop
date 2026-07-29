@@ -72,6 +72,24 @@ WANGDIAN_CRON_TOKEN=
 WANGDIAN_CRON_ALLOWED_IPS=127.0.0.1,::1
 ```
 
+### 4.1 常用快递映射
+
+`WANGDIAN_EXPRESS_MAP` 的键必须使用 `logistics.php` 返回的 ERP 物流编号，值必须是当前 ShopXO 数据库中已启用的快递公司 ID。不要根据快递名称自行猜测编码，也不要直接照搬其他环境的 ShopXO ID。
+
+当前沙箱联调需要覆盖以下编码：
+
+| 快递公司 | 旺店通 ERP 物流编号 | ShopXO 快递档案 |
+| --- | --- | --- |
+| 韵达 | `YDKD001` | 韵达快递 |
+| 邮政 | `ZGYZ001`、`YZXB001` | 邮政包裹 |
+| EMS | `EMS001`、`EMSJJ001` | EMS |
+| 顺丰 | `SF001`、`XCX-SF` | 顺丰快递 |
+| 圆通 | `YT001` | 圆通速递 |
+| 中通 | `ZTKD001` | 中通快递 |
+| 京东 | `JDWL001`、`JDCP001` | 京东物流 |
+
+切换正式旺店通账号或新增物流公司时，先调用 `logistics.php` 读取正式环境编码，再确认映射指向的 ShopXO 快递档案存在且已启用。完成配置后，应使用每个计划上线的物流编码各发一张测试单；至少要验证发货任务返回 `fail:0`、ShopXO 订单状态变为已发货，并且快递公司和单号正确。
+
 `WANGDIAN_ORDER_SYNC_FROM` 必须设置为首次启用同步的日期时间或 Unix 时间戳。未配置时不推送订单，防止首次开启后误推历史订单。
 
 生产环境如果启用了 ShopXO 仓库库存，将 `WANGDIAN_SHOPXO_WAREHOUSE_ID` 设置为该云仓在 ShopXO 后台对应的仓库 ID；`0` 表示只同步商品和规格总库存。
