@@ -44,6 +44,10 @@
                         'key'  => 'cache-config',
                     ],
                     [
+                        'name' => '企业微信通知',
+                        'key'  => 'enterprise-wechat',
+                    ],
+                    [
                         'name' => MyLang('config.cookie_config_title'),
                         'key'  => 'cookie-config',
                     ],
@@ -514,6 +518,42 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 企业微信订单通知 -->
+                <div class="item {{if $config_tab_key eq 'enterprise-wechat'}}am-active{{/if}}" data-key="enterprise-wechat">
+                    <div class="am-operate-stretch-tips am-margin-bottom-lg">
+                        <div class="title"><i class="iconfont icon-tips"></i><strong>支付成功通知</strong></div>
+                        <p>配置企业微信群机器人后，订单支付成功会自动发送通知。通知失败不会影响支付。</p>
+                        <p>Webhook 仅允许使用 qyapi.weixin.qq.com 的 HTTPS 地址；保存后不会在日志中记录地址。</p>
+                    </div>
+                    <div class="am-form-group">
+                        <label class="am-block">{{$data.enterprise_wechat_order_enabled.name}}<span class="am-form-group-label-tips">{{$data.enterprise_wechat_order_enabled.describe}}</span></label>
+                        <div class="am-radio-group">
+                            {{foreach $common_close_open_list as $v}}
+                                <label class="am-radio-inline">
+                                    <input type="radio" value="{{$v.value}}" name="{{$data.enterprise_wechat_order_enabled.only_tag}}" data-validation-message="{{$data.enterprise_wechat_order_enabled.error_tips}}" required {{if isset($data['enterprise_wechat_order_enabled']['value']) and $data['enterprise_wechat_order_enabled']['value'] eq $v['value']}}checked{{/if}} data-am-ucheck /> {{$v.name}}
+                                </label>
+                            {{/foreach}}
+                        </div>
+                    </div>
+                    <div class="am-form-group">
+                        <label>{{$data.enterprise_wechat_order_webhook_url.name}}<span class="am-form-group-label-tips">{{$data.enterprise_wechat_order_webhook_url.describe}}</span></label>
+                        <input type="password" name="{{$data.enterprise_wechat_order_webhook_url.only_tag}}" placeholder="留空保持已保存地址" autocomplete="new-password" data-validation-message="{{$data.enterprise_wechat_order_webhook_url.error_tips}}" class="am-radius" />
+                        <p class="am-form-group-label-tips am-margin-top-xs">{{if !empty($data['enterprise_wechat_order_webhook_url']['value'])}}当前状态：已配置（地址已隐藏）{{else /}}当前状态：未配置{{/if}}</p>
+                        <label class="am-checkbox-inline am-margin-top-sm"><input type="checkbox" value="1" name="enterprise_wechat_order_webhook_clear" data-am-ucheck /> 清除已保存的 Webhook</label>
+                    </div>
+                    <div class="am-form-group">
+                        <label>{{$data.enterprise_wechat_order_timeout.name}}<span class="am-form-group-label-tips">{{$data.enterprise_wechat_order_timeout.describe}}</span></label>
+                        <div class="am-input-group am-input-group-sm">
+                            <input type="number" min="1" max="5" step="1" name="{{$data.enterprise_wechat_order_timeout.only_tag}}" placeholder="3" data-validation-message="{{$data.enterprise_wechat_order_timeout.error_tips}}" class="am-radius am-form-field" {{if isset($data['enterprise_wechat_order_timeout']['value'])}}value="{{$data.enterprise_wechat_order_timeout.value}}"{{/if}} />
+                            <span class="am-input-group-label am-radius">秒</span>
+                        </div>
+                    </div>
+                    <div class="am-form-group">
+                        <label>{{$data.enterprise_wechat_order_mention_mobiles.name}}<span class="am-form-group-label-tips">{{$data.enterprise_wechat_order_mention_mobiles.describe}}</span></label>
+                        <input type="text" name="{{$data.enterprise_wechat_order_mention_mobiles.only_tag}}" placeholder="例如：13800000000,13900000000" data-validation-message="{{$data.enterprise_wechat_order_mention_mobiles.error_tips}}" class="am-radius" value="{{if isset($data['enterprise_wechat_order_mention_mobiles'])}}{{$data.enterprise_wechat_order_mention_mobiles.value}}{{/if}}" />
                     </div>
                 </div>
 

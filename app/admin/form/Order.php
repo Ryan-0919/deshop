@@ -29,6 +29,18 @@ class Order
     ];
 
     /**
+     * 导出订单时只允许导出交易成功（已支付且未退款）的订单。
+     * 动态表格模块会把请求参数传入构造函数，普通订单列表不受影响。
+     */
+    public function __construct($params = [])
+    {
+        if(isset($params['form_table_is_export_excel']) && $params['form_table_is_export_excel'] == 1)
+        {
+            $this->condition_base[] = ['pay_status', '=', 1];
+        }
+    }
+
+    /**
      * 入口
      * @author  Devil
      * @blog    http://gong.gg/
@@ -48,48 +60,14 @@ class Order
                 'key_field'     => 'id',
                 'is_search'     => 1,
                 'is_middle'     => 0,
+                // 筛选与排序使用固定字段标识，不随显示列顺序变化。
+                'stable_request_keys' => 1,
+                // 启用通用 Excel 导出；导出会沿用当前订单筛选条件（状态、时间等）
+                'is_data_export_excel' => 1,
             ],
             // 表单配置
             'form' => [
-                [
-                    'label'              => $lang['system_type'],
-                    'view_type'          => 'field',
-                    'view_key'           => 'system_type',
-                    'params_where_name'  => 'system_type_value',
-                    'is_copy'            => 1,
-                    'width'              => 130,
-                    'search_config'      => [
-                        'form_type'         => 'input',
-                    ],
-                ],
-                [
-                    'label'         => $lang['id'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'id',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['order_no'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'order_no',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['items_count'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'items_count',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['describe'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'describe',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
+                // 基础信息置首，随后展示交易与物流信息；管理员仍可在列设置中调整顺序。
                 [
                     'label'         => $lang['goods'],
                     'view_type'     => 'module',
@@ -105,52 +83,21 @@ class Order
                     ],
                 ],
                 [
-                    'label'         => $lang['user_id'],
+                    'label'         => $lang['order_no'],
                     'view_type'     => 'field',
-                    'view_key'      => 'user_id',
-                    'is_list'       => 0,
+                    'view_key'      => 'order_no',
                     'is_detail'     => 0,
+                    'is_copy'       => 1,
+                    'width'         => 200,
+                    'is_export'     => 1,
                 ],
                 [
-                    'label'         => $lang['user_username'],
+                    'label'         => $lang['add_time'],
                     'view_type'     => 'field',
-                    'view_key'      => 'user_username',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['user_nickname'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'user_nickname',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['user_mobile'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'user_mobile',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['user_email'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'user_email',
-                    'is_list'       => 0,
-                    'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['user'],
-                    'view_type'     => 'module',
-                    'view_key'      => 'lib/module/user',
-                    'grid_size'     => 'sm',
+                    'view_key'      => 'add_time',
                     'is_sort'       => 1,
                     'search_config' => [
-                        'form_type'             => 'input',
-                        'form_name'             => 'user_id',
-                        'where_type_custom'     => 'in',
-                        'where_value_custom'    => 'SystemModuleUserWhereHandle',
-                        'placeholder'           => $lang['user_placeholder'],
+                        'form_type'         => 'datetime',
                     ],
                 ],
                 [
@@ -197,9 +144,9 @@ class Order
                     ],
                 ],
                 [
-                    'label'         => $lang['total_price'],
+                    'label'         => $lang['pay_price'],
                     'view_type'     => 'field',
-                    'view_key'      => 'total_price',
+                    'view_key'      => 'pay_price',
                     'is_sort'       => 1,
                     'search_config' => [
                         'form_type'         => 'section',
@@ -207,9 +154,123 @@ class Order
                     ],
                 ],
                 [
-                    'label'         => $lang['pay_price'],
+                    'label'         => $lang['express'],
+                    'view_type'     => 'module',
+                    'view_key'      => 'order/module/express',
+                    'grid_size'     => 'sm',
+                    'is_detail'     => 0,
+                    'search_config' => [
+                        'form_type'             => 'input',
+                        'form_name'             => 'id',
+                        'where_type_custom'     => 'in',
+                        'where_value_custom'    => 'WhereExpressInfo',
+                        'placeholder'           => $lang['express_placeholder'],
+                    ],
+                ],
+                [
+                    'label'              => $lang['system_type'],
+                    'view_type'          => 'field',
+                    'view_key'           => 'system_type',
+                    'params_where_name'  => 'system_type_value',
+                    'is_copy'            => 1,
+                    'width'              => 130,
+                    'search_config'      => [
+                        'form_type'         => 'input',
+                    ],
+                ],
+                [
+                    'label'         => $lang['id'],
                     'view_type'     => 'field',
-                    'view_key'      => 'pay_price',
+                    'view_key'      => 'id',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['items_count'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'items_count',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['describe'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'describe',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['user_id'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_id',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['user_username'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_username',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['user_nickname'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_nickname',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['user_mobile'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_mobile',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                    'is_export'     => 1,
+                ],
+                [
+                    'label'         => $lang['user_email'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_email',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                ],
+                [
+                    'label'         => $lang['user'],
+                    'view_type'     => 'module',
+                    'view_key'      => 'lib/module/user',
+                    'grid_size'     => 'sm',
+                    'is_sort'       => 1,
+                    'search_config' => [
+                        'form_type'             => 'input',
+                        'form_name'             => 'user_id',
+                        'where_type_custom'     => 'in',
+                        'where_value_custom'    => 'SystemModuleUserWhereHandle',
+                        'placeholder'           => $lang['user_placeholder'],
+                    ],
+                ],
+                [
+                    // 导出时保留一个与“选择用户”筛选对应的用户列
+                    'label'         => $lang['user'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_export',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                    'is_export'     => 1,
+                ],
+                [
+                    // 导出邀请人/分销员（无邀请人时为空）
+                    'label'         => '邀请用户/分销员',
+                    'view_type'     => 'field',
+                    'view_key'      => 'user_referrer_export',
+                    'is_list'       => 0,
+                    'is_detail'     => 0,
+                    'is_export'     => 1,
+                ],
+                [
+                    'label'         => $lang['total_price'],
+                    'view_type'     => 'field',
+                    'view_key'      => 'total_price',
                     'is_sort'       => 1,
                     'search_config' => [
                         'form_type'         => 'section',
@@ -297,6 +358,7 @@ class Order
                     'view_key'      => 'address_contact_tel',
                     'is_list'       => 0,
                     'is_detail'     => 0,
+                    'is_export'     => 1,
                 ],
                 [
                     'label'         => $lang['address_extraction_contact_name'],
@@ -318,20 +380,6 @@ class Order
                     'view_key'      => 'address_info',
                     'is_list'       => 0,
                     'is_detail'     => 0,
-                ],
-                [
-                    'label'         => $lang['express'],
-                    'view_type'     => 'module',
-                    'view_key'      => 'order/module/express',
-                    'grid_size'     => 'sm',
-                    'is_detail'     => 0,
-                    'search_config' => [
-                        'form_type'             => 'input',
-                        'form_name'             => 'id',
-                        'where_type_custom'     => 'in',
-                        'where_value_custom'    => 'WhereExpressInfo',
-                        'placeholder'           => $lang['express_placeholder'],
-                    ],
                 ],
                 [
                     'label'         => $lang['service'],
@@ -549,15 +597,6 @@ class Order
                     ],
                 ],
                 [
-                    'label'         => $lang['add_time'],
-                    'view_type'     => 'field',
-                    'view_key'      => 'add_time',
-                    'is_sort'       => 1,
-                    'search_config' => [
-                        'form_type'         => 'datetime',
-                    ],
-                ],
-                [
                     'label'         => $lang['upd_time'],
                     'view_type'     => 'field',
                     'view_key'      => 'upd_time',
@@ -611,6 +650,8 @@ class Order
                     'user_nickname'                    => 'user.nickname',
                     'user_mobile'                      => 'user.mobile',
                     'user_email'                       => 'user.email',
+                    'user_export'                      => 'user_nickname',
+                    'user_referrer_export'              => 'user.referrer_info.user_name_view',
                 ],
             ],
             // 详情列表字段数据定义

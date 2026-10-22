@@ -990,11 +990,7 @@ class AppMiniUserService
                 'key_name'          => 'openid',
                 'error_msg'         => MyLang('common_service.appminiuser.open_id_empty_tips'),
             ],
-            [
-                'checked_type'      => 'empty',
-                'key_name'          => 'avatar',
-                'error_msg'         => MyLang('common_service.appminiuser.avatar_empty_tips'),
-            ],
+            // 头像不是注册必填项。微信基础库可能无法提供头像，前端统一使用默认头像。
             [
                 'checked_type'      => 'empty',
                 'key_name'          => 'nickname',

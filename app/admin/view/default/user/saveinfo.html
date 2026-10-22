@@ -77,6 +77,10 @@
                 <input type="number" placeholder="{{:MyLang('common_service.user.form_item_referrer')}}" name="referrer" data-validation-message="{{:MyLang('common_service.user.form_item_referrer_message')}}" min="0" class="am-radius" value="{{if !empty($data['referrer'])}}{{$data.referrer}}{{/if}}" />
             </div>
             <div class="am-form-group">
+                <label>企业微信成员 ID <span class="am-form-group-label-tips">用于订单通知自动艾特该分销员</span></label>
+                <input type="text" name="enterprise_wechat_userid" maxlength="64" pattern="^[A-Za-z0-9_@.-]{0,64}$" data-validation-message="企业微信成员 ID 只能包含字母、数字、下划线、点、中划线或 @" class="am-radius" placeholder="例如：zhangsan" value="{{if !empty($data['enterprise_wechat_userid'])}}{{$data.enterprise_wechat_userid}}{{/if}}" />
+            </div>
+            <div class="am-form-group">
                 <label>{{:MyLang('common_service.user.form_item_pwd')}}<span class="am-form-group-label-tips">{{:MyLang('common_service.user.form_item_pwd_tips')}}</span></label>
                 <input type="text" placeholder="{{:MyLang('common_service.user.form_item_pwd')}}" name="pwd" pattern="{{:MyConst('common_regex_pwd')}}" data-validation-message="{{:MyLang('common_service.user.form_item_pwd_message')}}" class="am-radius" value="" />
             </div>

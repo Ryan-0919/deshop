@@ -1,0 +1,59 @@
+{{:ModuleInclude('public/header')}}
+{{:ModuleInclude('public/header_top_nav')}}
+{{:ModuleInclude('public/header_nav_simple')}}
+
+<style>
+.debao-binding-wrap{max-width:680px;margin:48px auto;padding:0 16px}.debao-binding-panel{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:32px;box-shadow:0 8px 24px rgba(15,23,42,.08)}.debao-binding-panel h1{font-size:24px;line-height:1.4;margin:0 0 12px;color:#111827}.debao-binding-panel p{font-size:15px;line-height:1.8;color:#4b5563}.debao-binding-user{margin:22px 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #2563eb;color:#374151}.debao-binding-code{display:block;margin:20px 0;padding:18px;text-align:center;background:#111827;color:#fff;font-size:24px;letter-spacing:2px;border-radius:6px;user-select:all}.debao-binding-error{padding:14px 16px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px}.debao-binding-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}.debao-binding-button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 20px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer}.debao-binding-button:hover{background:#1d4ed8;color:#fff}.debao-binding-secondary{background:#fff;color:#1f2937;border:1px solid #d1d5db}.debao-binding-secondary:hover{background:#f9fafb;color:#111827}@media(max-width:640px){.debao-binding-wrap{margin:24px auto}.debao-binding-panel{padding:22px}.debao-binding-code{font-size:20px}}
+</style>
+
+<main class="debao-binding-wrap">
+    <section class="debao-binding-panel">
+        <input type="hidden" id="debao-challenge-id" value="{{$challenge_id|htmlspecialchars}}" />
+        {{if !empty($binding_result)}}
+            <h1>商城账号已确认</h1>
+            <p>请回到得宝，在确认码输入框中填写下方一次性确认码。确认码只显示本次，请勿转发给他人。</p>
+            <code class="debao-binding-code">{{$binding_result.confirmation_code|htmlspecialchars}}</code>
+            <p>完成得宝侧提交后，当前 DeShop 账号与得宝账号将建立映射，双方原有账号数据不会自动合并。</p>
+        {{else /}}
+            <h1>确认关联得宝账号</h1>
+            {{if !empty($binding_error)}}<p class="debao-binding-error">{{$binding_error|htmlspecialchars}}</p>{{/if}}
+            {{if empty($is_logged_in)}}
+                <p>请先登录需要关联的 DeShop 商城账号。登录完成后会返回此页面继续确认。</p>
+                <div class="debao-binding-actions"><a class="debao-binding-button" href="{{$login_url|htmlspecialchars}}">登录 DeShop</a></div>
+            {{else /}}
+                <div class="debao-binding-user">当前操作将关联您已登录的 DeShop 商城账号，请确认这是您本人发起的操作。</div>
+                <form method="post" id="debao-binding-form" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{$csrf_token|htmlspecialchars}}" />
+                    <input type="hidden" name="challenge_token" id="debao-challenge-token" value="" />
+                    <div class="debao-binding-actions">
+                        <button type="submit" class="debao-binding-button" id="debao-confirm-button" disabled>确认关联</button>
+                        <a class="debao-binding-button debao-binding-secondary" href="/">取消</a>
+                    </div>
+                </form>
+                <p class="debao-binding-error" id="debao-token-error" hidden>绑定凭证缺失，请从得宝重新打开确认入口。</p>
+            {{/if}}
+        {{/if}}
+    </section>
+</main>
+
+<script>
+(function(){
+    var challengeIdInput = document.getElementById('debao-challenge-id');
+    var challengeId = challengeIdInput ? challengeIdInput.value : '';
+    var storageKey = 'debao_binding_' + challengeId;
+    var fragment = new URLSearchParams(window.location.hash.slice(1));
+    var token = fragment.get('token') || '';
+    if(/^[a-f0-9]{64}$/.test(token)) sessionStorage.setItem(storageKey, token);
+    if(window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+    token = sessionStorage.getItem(storageKey) || '';
+    var input = document.getElementById('debao-challenge-token');
+    var button = document.getElementById('debao-confirm-button');
+    var error = document.getElementById('debao-token-error');
+    if(input && button && /^[a-f0-9]{64}$/.test(token)) { input.value = token; button.disabled = false; }
+    else if(error) error.hidden = false;
+    var form = document.getElementById('debao-binding-form');
+    if(form) form.addEventListener('submit', function(){ sessionStorage.removeItem(storageKey); });
+})();
+</script>
+
+{{:ModuleInclude('public/footer')}}

@@ -1,0 +1,10 @@
+.share .title {
+    border-style: solid;
+    border-width: 0 0 0 3px;
+}
+.submit-double .item {
+    width: 48%;
+}
+.submit-double .item button {
+    width: 46%;
+}

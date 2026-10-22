@@ -14,6 +14,7 @@ use think\facade\Db;
 use app\service\ResourcesService;
 use app\service\GoodsService;
 use app\service\GoodsCategoryService;
+use app\service\QuerySafetyService;
 
 /**
  * 布局自动化服务层
@@ -806,7 +807,7 @@ class LayoutModule
         if(!empty($params['category_id']))
         {
             // 默认系统商品分类，并读取分类子级
-            $category_field = empty($params['category_field']) ? 'gci.category_id' : $params['category_field'];
+            $category_field = QuerySafetyService::FieldList(empty($params['category_field']) ? 'gci.category_id' : $params['category_field'], ['gci.category_id'], 'gci.category_id');
             if($category_field == 'gci.category_id')
             {
                 $category_id = GoodsCategoryService::GoodsCategoryItemsIds([intval($params['category_id'])]);

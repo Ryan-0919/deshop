@@ -1,0 +1,22 @@
+.user-avatar {
+    width: 80rpx;
+    height: 80rpx !important;
+}
+
+.avatar-authorize-button {
+    min-height: 88rpx;
+    line-height: normal;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.avatar-authorize-button::after {
+    border: 0;
+}
+
+/**
+ * 表单排版
+ */
+.form-container .form-gorup:not(:last-child) {
+    border-bottom: 2rpx solid #F5F5F5;
+}

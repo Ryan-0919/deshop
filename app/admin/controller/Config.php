@@ -35,7 +35,7 @@ class Config extends Base
 	public function Index()
 	{
 		// 系统配置 tab（与模板 data-key、url 参数 switch 一致）
-		$nav_tab_keys = ['base-config', 'admin-login', 'goods', 'map', 'extend', 'verify-config', 'attachment-config', 'safety', 'cache-config', 'cookie-config', 'session-config'];
+		$nav_tab_keys = ['base-config', 'admin-login', 'goods', 'map', 'extend', 'verify-config', 'attachment-config', 'safety', 'cache-config', 'enterprise-wechat', 'cookie-config', 'session-config'];
 		$switch = isset($this->data_request['switch']) ? $this->data_request['switch'] : '';
 		$config_nav_tab_index = 0;
 		$config_tab_key = $nav_tab_keys[0];
@@ -130,6 +130,9 @@ class Config extends Base
 				$field_list[] = 'admin_login_ad_images';
 				$field_list[] = 'common_token_created_rules';
 				$field_list[] = 'common_images_verify_rules';
+				$field_list[] = 'enterprise_wechat_order_enabled';
+				$field_list[] = 'enterprise_wechat_order_timeout';
+				$field_list[] = 'enterprise_wechat_order_mention_mobiles';
 				break;
 
 			// 商店信息
@@ -156,6 +159,25 @@ class Config extends Base
 		}
 
 		// 空字段处理
+		if($view_type == 'index')
+		{
+			// Webhook 使用密码框显示，留空表示保持原值；勾选清除才会删除已保存地址。
+			$clear_webhook = !empty($params['enterprise_wechat_order_webhook_clear']);
+			unset($params['enterprise_wechat_order_webhook_clear']);
+			$webhook = trim((string)($params['enterprise_wechat_order_webhook_url'] ?? ''));
+			if($clear_webhook)
+			{
+				$params['enterprise_wechat_order_webhook_url'] = '';
+			} elseif($webhook === '') {
+				unset($params['enterprise_wechat_order_webhook_url']);
+			} elseif(!\app\service\EnterpriseWeixinNotifyService::IsValidWebhookUrl($webhook)) {
+				return ApiService::ApiDataReturn(DataReturn('企业微信机器人 Webhook 必须是 qyapi.weixin.qq.com 的 HTTPS 地址', -1));
+			}
+			if(isset($params['enterprise_wechat_order_timeout']))
+			{
+				$params['enterprise_wechat_order_timeout'] = min(5, max(1, (int)$params['enterprise_wechat_order_timeout']));
+			}
+		}
 		$params = ConfigService::FieldsEmptyDataHandle($params, $field_list);
 
 		// 默认值字段处理

@@ -482,10 +482,12 @@ class Weixin
         $notify_url = ($client_type == 'qq') ? 'https://api.q.qq.com/wxpay/notify' : $this->GetNotifyUrl($params);
 
         // 请求参数
+        $wechat_trade_title = '得恩法考-订单支付';
         $data = [
             'appid'             => $appid,
             'mch_id'            => $this->config['mch_id'],
-            'body'              => $params['site_name'].'-'.$params['name'],
+            // 微信账单/退款通知使用统一品牌和业务名称。
+            'body'              => $wechat_trade_title,
             'nonce_str'         => md5(time().$params['order_no']),
             'notify_url'        => $notify_url,
             'openid'            => ($trade_type == 'JSAPI') ? $openid : '',
@@ -493,7 +495,7 @@ class Weixin
             'spbill_create_ip'  => GetClientIP(),
             'total_fee'         => (int) (($params['total_price']*1000)/10),
             'trade_type'        => $trade_type,
-            'attach'            => empty($params['attach']) ? $params['site_name'].'-'.$params['name'] : $params['attach'],
+            'attach'            => empty($params['attach']) ? $wechat_trade_title : $params['attach'],
             'sign_type'         => 'MD5',
             'time_expire'       => $this->OrderAutoCloseTime(),
         ];

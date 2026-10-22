@@ -58,6 +58,29 @@
         <!-- 订单商品 -->
         <div class="item" data-key="order-detail-goods">
             <div class="am-padding-sm">
+                {{if !empty($price_adjustment_list)}}
+                    <div class="am-panel am-panel-warning am-margin-bottom-sm">
+                        <div class="am-panel-hd">改价记录</div>
+                        <div class="am-panel-bd am-padding-0">
+                            <div class="am-scrollable-horizontal">
+                                <table class="am-table am-table-striped am-table-compact am-margin-bottom-0">
+                                    <thead><tr><th>原金额</th><th>新金额</th><th>原因</th><th>操作人</th><th>时间</th></tr></thead>
+                                    <tbody>
+                                        {{foreach $price_adjustment_list as $adjustment}}
+                                            <tr>
+                                                <td>{{$data.currency_data.currency_symbol}}{{$adjustment.old_total_price}}</td>
+                                                <td>{{$data.currency_data.currency_symbol}}{{$adjustment.new_total_price}}</td>
+                                                <td>{{$adjustment.reason}}</td>
+                                                <td>{{$adjustment.creator_name}}</td>
+                                                <td>{{:date('Y-m-d H:i:s', $adjustment['add_time'])}}</td>
+                                            </tr>
+                                        {{/foreach}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                {{/if}}
                 {{if !empty($data['items'])}}
                     {{:ModuleInclude('order/module/goods', $data)}}
                 {{else /}}

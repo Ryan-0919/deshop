@@ -64,7 +64,22 @@ class Order extends Base
      */
     public function Detail()
     {
+        if(!empty($this->data_detail['id']))
+        {
+            MyViewAssign('price_adjustment_list', OrderService::OrderPriceAdjustmentList($this->data_detail['id']));
+        }
         return MyView();
+    }
+
+    /**
+     * 修改待付款订单金额。
+     */
+    public function ModifyPrice()
+    {
+        $params = $this->data_request;
+        $params['creator'] = $this->admin['id'];
+        $params['creator_name'] = $this->admin['username'];
+        return ApiService::ApiDataReturn(OrderService::OrderPriceAdjustment($params));
     }
 
     /**

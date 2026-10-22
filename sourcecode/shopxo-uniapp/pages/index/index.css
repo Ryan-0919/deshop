@@ -1,0 +1,157 @@
+/**
+ * 顶部内容
+ */
+.home-top-nav-content {
+    background-repeat: no-repeat;
+    background-size: 100% auto;
+    padding-top: calc(var(--status-bar-height) + 5px);
+}
+.home-top-nav {
+    min-height: 56rpx;
+    /* #ifdef MP-ALIPAY */
+    padding-left: 60rpx;
+    /* #endif */
+}
+.home-top-nav-location {
+    max-width: calc(100% - 200rpx);
+}
+.home-top-nav-logo {
+    text-align: left;
+    height: 56rpx;
+}
+.home-top-nav-logo-image {
+    width: 56rpx;
+    height: 100% !important;
+}
+.home-top-nav-logo-title {
+    font-weight: bold;
+    font-size: 42rpx;
+    /* #ifdef H5 || MP-TOUTIAO || APP */
+    font-size: 24px;
+    /* #endif */
+}
+
+/**
+ * 右侧图标导航
+ */
+/* #ifdef H5 || APP */
+.nav-top-right-icon {
+    line-height: 56rpx;
+}
+.nav-top-right-icon .item:not(:last-child) {
+    margin-right: 40rpx;
+}
+.nav-top-right-icon .badge-icon {
+    top: -10px;
+    right: 2px;
+}
+/* #endif */
+
+/**
+ * 搜索
+ */
+.search-fixed-seat {
+    padding-top: 78rpx;
+}
+.search-fixed-seat.nav-enable-search {
+    padding-top: 146rpx;
+}
+.search-content-fixed {
+    position: fixed !important;
+    top: 0;
+    z-index: 11;
+    width: 100%;
+}
+.search-content-fixed-content {
+    background-repeat: no-repeat;
+    background-size: 100% auto;
+    background-position: top;
+    padding-bottom: 6rpx;
+    /* #ifdef H5 */
+    padding-top: 15rpx !important;
+    /* #endif */
+}
+.search-content-fixed-content.nav-enable-search {
+    padding-bottom: 24rpx;
+}
+
+/* #ifdef H5 || MP-TOUTIAO */
+.search-content-fixed .nav-top-right-icon {
+    top: 8px !important;
+}
+/* #endif */
+
+/**
+ * 推荐文章
+ */
+.article-list .new-icon {
+    width: 130rpx !important;
+    height: 42rpx !important;
+}
+.article-list .right-content {
+    width: calc(100% - 150rpx);
+}
+.article-list .right-content swiper {
+    height: 40rpx;
+}
+.notice {
+    margin: 20rpx 0 14rpx 0;
+}
+
+/*
+ * 限时秒杀、预售 - 插件
+ */
+
+.plugins-seckill-data,
+.plugins-presale-data {
+    background-size: 100% auto;
+    background-repeat: no-repeat;
+    background-position: top;
+}
+.plugins-seckill-data .icon,
+.plugins-presale-data .icon {
+    max-width: 140rpx;
+    max-height: 34rpx;
+}
+
+/**
+ * 购买记录 - 插件
+ */
+.plugins-salerecords swiper {
+    height: 506rpx;
+}
+.plugins-salerecords image {
+    width: 40rpx !important;
+    height: 40rpx !important;
+    border-radius: 50%;
+}
+.plugins-salerecords .item-content {
+    width: 24%;
+}
+.plugins-salerecords .item-content:nth-child(1) {
+    width: 36%;
+}
+.plugins-salerecords .item-content:nth-child(2) {
+    width: 40%;
+}
+
+/**
+ * 标签 - 秒杀单独修改样式
+ */
+.plugins-seckill-data .plugins-label-bottom-left,
+.plugins-seckill-data .plugins-label-bottom-center,
+.plugins-seckill-data .plugins-label-bottom-right {
+    bottom: calc(100% - 240rpx);
+}
+
+/**
+ * 首页中间广告- 插件
+ */
+.plugins-homemiddleadv {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20rpx;
+}
+.plugins-homemiddleadv .item {
+    flex: 1 1 calc(50% - 20rpx);
+}

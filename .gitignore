@@ -9,3 +9,19 @@
 *.htaccess
 *payment_*_respond.php
 *payment_*_notify.php
+
+# Local development and assistant state
+.agents/
+.claude/
+.codex/
+.local-runtime/
+.scratch/
+**/__pycache__/
+
+# Local/private build artifacts and working documents
+~$*
+*.docx
+*-release.zip
+sourcecode/shopxo-uniapp/project.private.config.json
+sourcecode/shopxo-uniapp/node_modules/
+sourcecode/shopxo-uniapp/unpackage/

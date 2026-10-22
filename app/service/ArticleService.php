@@ -23,6 +23,18 @@ use app\service\ResourcesService;
  */
 class ArticleService
 {
+    // Dynamic list fields and sort columns are restricted before reaching the ORM.
+    private static $query_field_list = [
+        'id', 'title', 'describe', 'article_category_id', 'title_color', 'jump_url',
+        'is_enable', 'content', 'cover', 'images', 'images_count', 'access_count',
+        'is_home_recommended', 'share_images', 'seo_title', 'seo_keywords', 'seo_desc',
+        'add_time', 'upd_time',
+    ];
+    private static $query_order_list = [
+        'id', 'title', 'article_category_id', 'is_enable', 'images_count',
+        'access_count', 'is_home_recommended', 'add_time', 'upd_time',
+    ];
+
     /**
      * 推荐文章列表
      * @author  Devil
@@ -67,8 +79,9 @@ class ArticleService
     public static function ArticleList($params)
     {
         $where = empty($params['where']) ? [] : $params['where'];
-        $field = empty($params['field']) ? '*' : $params['field'];
-        $order_by = empty($params['order_by']) ? self::ArticleByOrder($params) : trim($params['order_by']);
+        $field = QuerySafetyService::FieldList(empty($params['field']) ? '*' : $params['field'], self::$query_field_list, '*');
+        $default_order_by = self::ArticleByOrder($params);
+        $order_by = QuerySafetyService::OrderBy(empty($params['order_by']) ? $default_order_by : $params['order_by'], self::$query_order_list, $default_order_by);
         $m = isset($params['m']) ? intval($params['m']) : 0;
         $n = isset($params['n']) ? intval($params['n']) : 10;
 
@@ -84,6 +97,10 @@ class ArticleService
             'm'             => &$m,
             'n'             => &$n,
         ]);
+
+        // Plugins may alter these values, so enforce the same boundary immediately before SQL.
+        $field = QuerySafetyService::FieldList($field, self::$query_field_list, '*');
+        $order_by = QuerySafetyService::OrderBy($order_by, self::$query_order_list, $default_order_by);
 
         $data = Db::name('Article')->field($field)->where($where)->order($order_by)->limit($m, $n)->select()->toArray();
         return DataReturn(MyLang('handle_success'), 0, self::ArticleListHandle($data, $params));
@@ -240,9 +257,10 @@ class ArticleService
                 'hot'  => 'access_count',
                 'new'  => 'id',
             ];
-            if(array_key_exists($params['order_by_key'], $arr))
+            $order_by_val = strtolower(trim((string) $params['order_by_val']));
+            if(array_key_exists($params['order_by_key'], $arr) && in_array($order_by_val, ['asc', 'desc'], true))
             {
-                $order_by = $arr[$params['order_by_key']].' '.$params['order_by_val'];
+                $order_by = $arr[$params['order_by_key']].' '.$order_by_val;
             }
         }
         return $order_by;

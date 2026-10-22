@@ -21,6 +21,8 @@ use think\facade\Db;
  */
 class ArticleCategoryService
 {
+    private static $query_field_list = ['id', 'pid', 'name', 'is_enable', 'sort', 'add_time', 'upd_time'];
+
     /**
      * 文章分类
      * @author   Devil
@@ -32,8 +34,8 @@ class ArticleCategoryService
      */
     public static function ArticleCategoryList($params = [])
     {
-        $field = empty($params['field']) ? '*' : $params['field'];
-        $order_by = empty($params['order_by']) ? 'sort asc' : trim($params['order_by']);
+        $field = QuerySafetyService::FieldList(empty($params['field']) ? '*' : $params['field'], self::$query_field_list, '*');
+        $order_by = QuerySafetyService::OrderBy(empty($params['order_by']) ? 'sort asc' : $params['order_by'], self::$query_field_list, 'sort asc');
         $data = Db::name('ArticleCategory')->where(['is_enable'=>1])->field($field)->order($order_by)->select()->toArray();
         return DataReturn(MyLang('handle_success'), 0, self::CategoryDataHandle($data, $params));
     }

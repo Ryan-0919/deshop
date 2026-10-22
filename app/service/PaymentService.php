@@ -486,6 +486,11 @@ class PaymentService
      */
     public static function PaymentLegalCheck($payment)
     {
+        if(!self::PaymentIdentifierValid($payment))
+        {
+            return DataReturn('支付方式标识不合法', -1);
+        }
+
         if(RequestModule() == 'admin')
         {
             $key = 'payment_legal_check_'.$payment;
@@ -513,6 +518,14 @@ class PaymentService
             }
         }
         return DataReturn('success', 0);
+    }
+
+    /**
+     * 支付方式及入口文件组成部分只能使用安全标识符。
+     */
+    public static function PaymentIdentifierValid($value)
+    {
+        return is_string($value) && preg_match('/\A[A-Za-z][A-Za-z0-9_]{0,59}\z/D', $value) === 1;
     }
 
     /**
@@ -997,6 +1010,14 @@ class PaymentService
             return DataReturn($ret, -1);
         }
 
+        // 这些值会进入 PHP 源码及入口文件名，必须在写文件前严格校验。
+        if(!self::PaymentIdentifierValid($params['payment']) ||
+            preg_match('#\A/(?:api|index)/[A-Za-z0-9/_-]{1,120}\z/D', (string) $params['respond']) !== 1 ||
+            preg_match('#\A/(?:api|index)/[A-Za-z0-9/_-]{1,120}\z/D', (string) $params['notify']) !== 1)
+        {
+            return DataReturn('支付入口参数不合法', -1);
+        }
+
         // 权限
         $ret = self::PowerCheck();
         if($ret['code'] != 0)
@@ -1035,6 +1056,10 @@ class PaymentService
         foreach($business_all as $v)
         {
             $business_name = strtolower($v['name']);
+            if(!self::PaymentIdentifierValid($business_name))
+            {
+                return DataReturn('支付业务标识不合法', -1);
+            }
             if(defined('IS_ROOT_ACCESS'))
             {
 // 异步
@@ -1216,6 +1241,10 @@ php;
         {
             return DataReturn(MyLang('common_service.payment.create_payment_empty_tips'), -1);
         }
+        if(!self::PaymentIdentifierValid($params['payment']))
+        {
+            return DataReturn('支付方式标识不合法', -1);
+        }
 
         // 处理业务
         $business_all = empty($params['business']) ? self::$payment_business_type_all : $params['business'];
@@ -1247,8 +1276,17 @@ php;
      */
     public static function EntranceFileData($payment, $name)
     {
+        if(!self::PaymentIdentifierValid($payment) || !self::PaymentIdentifierValid($name))
+        {
+            throw new \InvalidArgumentException('Invalid payment entrance identifier.');
+        }
+
         // 系统类型
         $system_type = SystemService::SystemTypeValue();
+        if(!self::PaymentIdentifierValid($system_type))
+        {
+            throw new \InvalidArgumentException('Invalid payment entrance system type.');
+        }
 
         // 地址路径名称
         $dir = 'payment_'.$system_type.'_'.strtolower($name).'_'.strtolower($payment);
@@ -1270,6 +1308,11 @@ php;
      */
     public static function EntranceFileChecked($payment, $name)
     {
+        if(!self::PaymentIdentifierValid($payment) || !self::PaymentIdentifierValid($name))
+        {
+            return DataReturn('支付入口标识不合法', -1);
+        }
+
         // 文件名称
         $file = self::EntranceFileData($payment, $name);
 

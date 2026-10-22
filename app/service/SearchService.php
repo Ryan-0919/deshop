@@ -688,9 +688,13 @@ class SearchService
                 $order_by = $fields[$temp[0]].' '.$temp[1];
             }
         } else {
-            if(!empty($params['order_by_type']) && !empty($params['order_by_field']) && $params['order_by_field'] != 'default')
+            $compatibility_order = self::SearchCompatibilityOrderBy(
+                isset($params['order_by_field']) ? $params['order_by_field'] : '',
+                isset($params['order_by_type']) ? $params['order_by_type'] : ''
+            );
+            if(!empty($compatibility_order))
             {
-                $order_by = 'g.'.$params['order_by_field'].' '.$params['order_by_type'];
+                $order_by = $compatibility_order['order_by'];
             }
         }
 
@@ -702,6 +706,30 @@ class SearchService
             'screening_price'   => $where_screening_price,
             'order_by'          => $order_by,
             'is_map'            => $is_map,
+        ];
+    }
+
+    /**
+     * Backwards-compatible app sorting, restricted to the fields exposed by the UI.
+     */
+    public static function SearchCompatibilityOrderBy($field, $direction)
+    {
+        $field_map = [
+            'sales_count'  => 'g.sales_count',
+            'access_count' => 'g.access_count',
+            'min_price'    => 'g.min_price',
+            'id'           => 'g.id',
+        ];
+        $field = is_string($field) ? strtolower(trim($field)) : '';
+        $direction = QuerySafetyService::Direction($direction);
+        if(!array_key_exists($field, $field_map) || $direction === '')
+        {
+            return null;
+        }
+        return [
+            'field'     => $field,
+            'direction' => $direction,
+            'order_by'  => $field_map[$field].' '.$direction,
         ];
     }
 
@@ -754,9 +782,16 @@ class SearchService
         {
             // 排序
             $ov_arr = empty($params['ov']) ? '' : explode('-', $params['ov']);
-            if(empty($ov_arr) && !empty($params['order_by_type']) && !empty($params['order_by_field']))
+            if(empty($ov_arr))
             {
-                $ov_arr = [$params['order_by_field'], $params['order_by_type']];
+                $compatibility_order = self::SearchCompatibilityOrderBy(
+                    isset($params['order_by_field']) ? $params['order_by_field'] : '',
+                    isset($params['order_by_type']) ? $params['order_by_type'] : ''
+                );
+                if(!empty($compatibility_order))
+                {
+                    $ov_arr = [$compatibility_order['field'], $compatibility_order['direction']];
+                }
             }
 
             // 结果仅保留商品id

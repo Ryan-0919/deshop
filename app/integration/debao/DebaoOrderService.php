@@ -1,0 +1,13 @@
+<?php
+namespace app\integration\debao;
+use think\facade\Db;
+
+final class DebaoOrderService
+{
+    public static function list(string $debaoUserId, ?string $cursor, int $limit): array
+    { $uid=self::uid($debaoUserId); if($uid===null)return self::err('BINDING_REQUIRED',409); $limit=max(1,min(100,$limit)); $q=Db::name('Order')->where('user_id',$uid)->order('id asc')->limit($limit+1); if($cursor){$d=base64_decode($cursor,true);if($d===false||!ctype_digit($d))return self::err('INVALID_CURSOR',400);$q->where('id','>',(int)$d);} $rows=$q->field('id,status,total_price,add_time')->select()->toArray();$more=count($rows)>$limit;if($more)array_pop($rows);$next=$more?base64_encode((string)end($rows)['id']):null;return self::ok(['items'=>array_map(fn($r)=>['order_id'=>(string)$r['id'],'status'=>(string)$r['status'],'total_cents'=>(int)round((float)$r['total_price']*100),'created_at'=>gmdate('c',(int)$r['add_time'])],$rows),'next_cursor'=>$next,'has_more'=>$more]); }
+    public static function detail(string $u,string $id): array { $uid=self::uid($u);if($uid===null)return self::err('BINDING_REQUIRED',409);$r=Db::name('Order')->where(['id'=>(int)$id,'user_id'=>$uid])->field('id,status,total_price,add_time')->find();return empty($r)?self::err('NOT_FOUND',404):self::ok(['order_id'=>(string)$r['id'],'status'=>(string)$r['status'],'total_cents'=>(int)round((float)$r['total_price']*100),'created_at'=>gmdate('c',(int)$r['add_time'])]); }
+    public static function logistics(string $u,string $id): array { $uid=self::uid($u);if($uid===null)return self::err('BINDING_REQUIRED',409);$o=Db::name('Order')->where(['id'=>(int)$id,'user_id'=>$uid])->find();if(empty($o))return self::err('NOT_FOUND',404);$rows=Db::name('OrderExpress')->where('order_id',(int)$id)->field('express_number,express_id,add_time')->select()->toArray();return self::ok(['order_id'=>(string)$id,'packages'=>$rows]); }
+    public static function webhook(array $body,int $now): array { $id=trim((string)($body['event_id']??''));if($id==='')return self::err('INVALID_REQUEST',400);$e=Db::name('DebaoWebhookEvent')->where('event_id',$id)->find();if($e)return ['code'=>0,'status'=>204];Db::name('DebaoWebhookEvent')->insert(['event_id'=>$id,'event_type'=>(string)($body['event_type']??''),'payload'=>json_encode($body),'status'=>'received','add_time'=>$now]);return ['code'=>0,'status'=>204]; }
+    private static function uid(string $u):?int{$r=Db::name('DebaoBinding')->where(['debao_user_id'=>$u,'status'=>'active'])->find();return empty($r)?null:(int)$r['deshop_user_id'];} private static function ok(array $d):array{return ['code'=>0,'status'=>200,'data'=>$d];} private static function err(string $e,int $s):array{return ['code'=>-1,'status'=>$s,'error'=>$e];}
+}

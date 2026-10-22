@@ -1,6 +1,82 @@
 <!-- 继承公共的 form -->
 {{extend name="../../../module/view/form_table/form" /}}
 
+{{block name="form_content_top"}}
+    <div class="am-margin-bottom-sm am-flex am-flex-middle am-gap-8">
+        <span class="am-text-middle">快速导出：</span>
+        <button type="button" class="am-btn am-btn-default-plain am-btn-xs order-export-range" data-range="today">本天</button>
+        <button type="button" class="am-btn am-btn-default-plain am-btn-xs order-export-range" data-range="month">本月</button>
+        <span class="am-text-middle am-margin-left-sm">自定义：</span>
+        <input type="date" class="am-form-field am-input-sm am-inline-block" id="order-export-start-date" style="width: 145px;" aria-label="开始日期" />
+        <span class="am-text-middle">至</span>
+        <input type="date" class="am-form-field am-input-sm am-inline-block" id="order-export-end-date" style="width: 145px;" aria-label="结束日期" />
+        <button type="button" class="am-btn am-btn-primary am-btn-xs order-export-custom">导出</button>
+        <button type="button" class="am-btn am-btn-default-plain am-btn-xs order-export-range" data-range="clear">清除时间</button>
+        <span class="am-text-grey am-text-xs">可再配合订单状态筛选</span>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            function pad(value) { return value < 10 ? '0' + value : value; }
+            function formatDate(date, endOfDay) {
+                return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+                    (endOfDay ? ' 23:59:59' : ' 00:00:00');
+            }
+            function setOrderExportRange(start, end) {
+                var $form = $('form.form-validation-search');
+                // 优先更新实际控件；仅当日期列隐藏时使用固定别名，避免旧别名覆盖后续手动输入。
+                $.each({add_time_start: start, add_time_end: end}, function (name, value) {
+                    var suffix = name === 'add_time_start' ? '_start' : '_end';
+                    var $visible = $form.find('.form-table-search-item-head-value-add_time input[name$="' + suffix + '"]');
+                    var $input = $form.find('input[name="' + name + '"]');
+                    if ($visible.length) {
+                        $visible.val(value);
+                        $input.remove();
+                        return;
+                    }
+                    if (!$input.length) {
+                        $input = $('<input>').attr({type: 'hidden', name: name}).appendTo($form);
+                    }
+                    $input.val(value);
+                });
+            }
+            $(document).on('click', '.order-export-range', function () {
+                var range = $(this).data('range');
+                var start = '', end = '';
+                if (range === 'today') {
+                    var today = new Date();
+                    start = formatDate(today, false);
+                    end = formatDate(today, true);
+                } else if (range === 'month') {
+                    var now = new Date();
+                    start = formatDate(new Date(now.getFullYear(), now.getMonth(), 1), false);
+                    end = formatDate(new Date(now.getFullYear(), now.getMonth() + 1, 0), true);
+                }
+                setOrderExportRange(start, end);
+                if (range === 'clear') {
+                    $('form.form-validation-search').trigger('submit');
+                    return;
+                }
+                // 直接沿用通用导出逻辑，当前已选择的订单状态等条件也会一并带上
+                $('.form-table-operate-top-export-excel-submit').trigger('click');
+            });
+            $(document).on('click', '.order-export-custom', function () {
+                var startDate = $('#order-export-start-date').val();
+                var endDate = $('#order-export-end-date').val();
+                if (!startDate || !endDate) {
+                    Prompt('请选择开始日期和结束日期');
+                    return;
+                }
+                if (startDate > endDate) {
+                    Prompt('开始日期不能晚于结束日期');
+                    return;
+                }
+                setOrderExportRange(startDate + ' 00:00:00', endDate + ' 23:59:59');
+                $('.form-table-operate-top-export-excel-submit').trigger('click');
+            });
+        }());
+    </script>
+{{/block}}
+
 <!-- 扩展 -->
 {{block name="form_extend"}}
     <!-- 取货弹窗 -->
@@ -84,6 +160,38 @@
                             <i class="am-icon-check"></i>
                             <span>{{:MyLang('confirm_title')}}</span>
                         </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 待付款订单改价弹窗 -->
+    <div class="am-popup am-radius" id="order-modify-price-modal">
+        <div class="am-popup-inner">
+            <div class="am-popup-hd">
+                <h4 class="am-popup-title">修改订单应付金额</h4>
+                <span data-am-modal-close class="am-close">&times;</span>
+            </div>
+            <div class="am-popup-bd">
+                <form class="am-form form-validation-modify-price am-form-popup-fixed" action="{{:MyUrl('admin/order/modifyprice')}}" method="POST" request-type="ajax-reload">
+                    <div class="am-form-group">
+                        <p class="am-text-sm am-text-grey modify-price-order-no">订单号：-</p>
+                        <label>当前应付金额</label>
+                        <p class="am-text-danger"><span class="modify-price-current">0.00</span></p>
+                    </div>
+                    <div class="am-form-group">
+                        <label>新的应付金额 <span class="am-form-group-label-tips">仅待付款订单可修改</span></label>
+                        <input type="number" name="new_total_price" min="0" max="99999999.99" step="0.01" required class="am-radius am-form-field" placeholder="请输入新的应付金额" />
+                    </div>
+                    <div class="am-form-group">
+                        <label>改价原因</label>
+                        <textarea name="reason" maxlength="255" required class="am-radius am-form-field" rows="3" placeholder="例如：客服议价优惠、补差价调整"></textarea>
+                    </div>
+                    <div class="am-form-popup-submit">
+                        <input type="hidden" name="id" value="0" />
+                        <button type="button" class="am-btn am-btn-warning am-radius am-btn-xs" data-am-modal-close>取消</button>
+                        <button type="submit" class="am-btn am-btn-primary am-radius am-btn-xs btn-loading-example" data-am-loading="{spinner: 'circle-o-notch', loadingText:'保存中...'}">保存改价</button>
                     </div>
                 </form>
             </div>

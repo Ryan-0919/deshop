@@ -709,6 +709,11 @@ class UserService
         {
             return DataReturn($ret, -1);
         }
+        $enterprise_wechat_userid = isset($params['enterprise_wechat_userid']) ? trim((string) $params['enterprise_wechat_userid']) : '';
+        if($enterprise_wechat_userid !== '' && !preg_match('/^[A-Za-z0-9_@.-]{1,64}$/', $enterprise_wechat_userid))
+        {
+            return DataReturn('企业微信成员 ID 格式有误', -1);
+        }
 
         // 附件
         $attachment = ResourcesService::AttachmentParams($params, ['avatar']);
@@ -734,6 +739,7 @@ class UserService
             'status'            => intval($params['status']),
             'birthday'          => empty($params['birthday']) ? 0 : strtotime($params['birthday']),
             'referrer'          => empty($params['referrer']) ? 0 : intval($params['referrer']),
+            'enterprise_wechat_userid' => $enterprise_wechat_userid,
         ];
         // 邀请人处理
         if(!empty($data['referrer']) && !empty($params['id']))
@@ -1054,7 +1060,7 @@ class UserService
             $user['is_setup_pwd'] = empty($user['pwd']) ? 0 : 1;
 
             // 移除特殊数据
-            unset($user['pwd'], $user['salt']);
+            unset($user['pwd'], $user['salt'], $user['enterprise_wechat_userid']);
         }
         return $user;
     }

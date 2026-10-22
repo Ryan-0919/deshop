@@ -50,6 +50,134 @@ class OrderService
     }
 
     /**
+     * 修改未支付订单应付金额。
+     *
+     * 只允许已确认、未支付的订单操作。调价记录独立保存，商品快照和商品原价不变；
+     * 任何尚未支付的旧支付日志都会关闭，用户下次支付时由 Pay() 按新金额生成支付单。
+     */
+    public static function OrderPriceAdjustment($params = [])
+    {
+        $order_id = isset($params['id']) ? intval($params['id']) : 0;
+        if($order_id <= 0)
+        {
+            return DataReturn(MyLang('order_id_error_tips'), -1);
+        }
+
+        $new_total_price = isset($params['new_total_price']) ? trim((string) $params['new_total_price']) : '';
+        if($new_total_price === '' || !preg_match('/^\d{1,8}(?:\.\d{1,2})?$/', $new_total_price))
+        {
+            return DataReturn('请输入合法金额（最多 8 位整数、2 位小数）', -1);
+        }
+        $new_total_price = number_format((float) $new_total_price, 2, '.', '');
+        $new_total_cents = (int) round(((float) $new_total_price) * 100);
+        if($new_total_cents < 0 || $new_total_cents > 9999999999)
+        {
+            return DataReturn('订单金额超出允许范围', -1);
+        }
+
+        $reason = isset($params['reason']) ? trim((string) $params['reason']) : '';
+        if($reason === '' || mb_strlen($reason) > 255)
+        {
+            return DataReturn('请填写改价原因（1-255 个字符）', -1);
+        }
+
+        $operator_id = isset($params['creator']) ? intval($params['creator']) : 0;
+        $operator_name = isset($params['creator_name']) ? trim((string) $params['creator_name']) : '';
+        $now = time();
+        Db::startTrans();
+        try
+        {
+            // 在事务内加行锁，避免管理员改价与支付回调并发成功。
+            $order = Db::name('Order')->where(['id'=>$order_id])->lock(true)->find();
+            if(empty($order))
+            {
+                throw new \RuntimeException(MyLang('data_no_exist_or_delete_error_tips'));
+            }
+            if((int) $order['pay_status'] !== 0 || (int) $order['status'] !== 1)
+            {
+                throw new \RuntimeException('只有已确认且待付款订单可以改价，已付款订单请走退款/售后流程');
+            }
+
+            $old_total_price = number_format((float) $order['total_price'], 2, '.', '');
+            $old_total_cents = (int) round(((float) $old_total_price) * 100);
+            if($old_total_cents === $new_total_cents)
+            {
+                throw new \RuntimeException('新金额与当前应付金额相同，无需改价');
+            }
+
+            $updated = Db::name('Order')->where([
+                'id'         => $order_id,
+                'status'     => 1,
+                'pay_status' => 0,
+            ])->update([
+                'total_price' => $new_total_price,
+                'upd_time'    => $now,
+            ]);
+            if($updated !== 1)
+            {
+                throw new \RuntimeException('订单状态已变化，请刷新后重试');
+            }
+
+            $adjustment_id = Db::name('OrderPriceAdjustment')->insertGetId([
+                'order_id'          => $order_id,
+                'order_no'          => $order['order_no'],
+                'old_total_price'   => $old_total_price,
+                'new_total_price'   => $new_total_price,
+                'reason'            => htmlentities($reason, ENT_QUOTES, 'UTF-8'),
+                'creator'           => $operator_id,
+                'creator_name'      => htmlentities($operator_name, ENT_QUOTES, 'UTF-8'),
+                'add_time'          => $now,
+            ]);
+            if($adjustment_id <= 0)
+            {
+                throw new \RuntimeException('改价记录保存失败');
+            }
+
+            // 旧支付日志可能已生成但尚未支付，关闭后禁止旧金额继续回调。
+            $pay_log_ids = Db::name('PayLogValue')->where(['business_id'=>$order_id])->column('pay_log_id');
+            if(!empty($pay_log_ids))
+            {
+                Db::name('PayLog')->where(['business_type'=>self::BusinessTypeName()])
+                    ->where('id', 'in', array_map('intval', $pay_log_ids))
+                    ->where('status', 0)
+                    ->update(['status'=>2, 'close_time'=>$now]);
+            }
+
+            if(!self::OrderHistoryAdd($order_id, $order['status'], $order['status'], '订单改价：'.$old_total_price.' → '.$new_total_price.'；'.$reason, $operator_id, $operator_name))
+            {
+                throw new \RuntimeException('订单操作记录保存失败');
+            }
+            Db::commit();
+        } catch(\Throwable $e) {
+            Db::rollback();
+            return DataReturn($e->getMessage(), -1);
+        }
+
+        return DataReturn('订单金额已更新，请让用户刷新订单后重新支付', 0, [
+            'order_id'        => $order_id,
+            'old_total_price' => $old_total_price,
+            'new_total_price' => $new_total_price,
+            'adjustment_id'   => $adjustment_id,
+        ]);
+    }
+
+    /** 获取订单调价审计记录（后台详情使用）。 */
+    public static function OrderPriceAdjustmentList($order_id)
+    {
+        $order_id = intval($order_id);
+        if($order_id <= 0)
+        {
+            return [];
+        }
+        try {
+            return Db::name('OrderPriceAdjustment')->where(['order_id'=>$order_id])->order('id desc')->select()->toArray();
+        } catch(\Throwable $e) {
+            // 迁移尚未执行时不影响既有订单详情页面加载。
+            return [];
+        }
+    }
+
+    /**
      * 订单支付
      * @author   Devil
      * @blog    http://gong.gg/
@@ -263,20 +391,50 @@ class OrderService
             return $ret;
         }
 
-        // 新增支付日志
-        $pay_log = self::OrderPayLogInsert([
-            'user_id'       => $current_user['id'],
-            'business_ids'  => $order_ids,
-            'business_nos'  => $order_nos,
-            'business_data' => $order_data,
-            'total_price'   => $total_price,
-            'system_type'   => $order_data[0]['system_type'],
-            'payment'       => $payment['payment'],
-            'payment_name'  => $payment['name'],
-        ]);
-        if($pay_log['code'] != 0)
-        {
-            return $pay_log;
+        // 改价与创建支付日志必须串行：否则改价事务可能关闭旧日志后，支付流程又用旧快照创建新日志。
+        Db::startTrans();
+        try {
+            $locked_orders = Db::name('Order')->where(['id'=>$order_ids])->lock(true)->select()->toArray();
+            $locked_by_id = [];
+            foreach($locked_orders as $locked_order)
+            {
+                $locked_by_id[(int) $locked_order['id']] = $locked_order;
+            }
+            $locked_total_price = 0.00;
+            foreach($order_data as $snapshot)
+            {
+                $locked_order = $locked_by_id[(int) $snapshot['id']] ?? null;
+                if(empty($locked_order) || (int) $locked_order['status'] !== 1 || (int) $locked_order['pay_status'] !== 0)
+                {
+                    throw new \RuntimeException('订单状态已变化，请刷新后重试');
+                }
+                if((int) round(((float) $locked_order['total_price']) * 100) !== (int) round(((float) $snapshot['total_price']) * 100))
+                {
+                    throw new \RuntimeException('订单金额已变化，请刷新后重试');
+                }
+                $locked_total_price += (float) $locked_order['total_price'];
+            }
+            $total_price = $locked_total_price;
+
+            // 用锁内最新订单快照写入支付日志，避免后续支付回调携带过期金额。
+            $pay_log = self::OrderPayLogInsert([
+                'user_id'       => $current_user['id'],
+                'business_ids'  => $order_ids,
+                'business_nos'  => $order_nos,
+                'business_data' => $locked_orders,
+                'total_price'   => $total_price,
+                'system_type'   => $order_data[0]['system_type'],
+                'payment'       => $payment['payment'],
+                'payment_name'  => $payment['name'],
+            ]);
+            if($pay_log['code'] != 0)
+            {
+                throw new \RuntimeException($pay_log['msg']);
+            }
+            Db::commit();
+        } catch(\Throwable $e) {
+            Db::rollback();
+            return DataReturn($e->getMessage(), -1);
         }
 
         // 发起支付数据
@@ -895,6 +1053,38 @@ class OrderService
 
         // 捕获异常
         try {
+            if($order_total_price > 0 && !empty($params['pay_log_data']) && !empty($params['payment']))
+            {
+                // 回调必须使用同一把订单锁重新核对金额，拒绝改价前生成的过期支付单。
+                $locked_pay_log = Db::name('PayLog')->where(['id'=>$params['pay_log_data']['id']])->lock(true)->find();
+                if(empty($locked_pay_log) || (int) $locked_pay_log['status'] !== 0)
+                {
+                    throw new \RuntimeException('支付单已关闭或不存在，请重新发起支付');
+                }
+                $locked_order_list = [];
+                $locked_total_price = 0.00;
+                foreach($params['order'] as $incoming_order)
+                {
+                    $locked_order = Db::name('Order')->where(['id'=>$incoming_order['id']])->lock(true)->find();
+                    if(empty($locked_order) || (int) $locked_order['status'] !== 1 || (int) $locked_order['pay_status'] !== 0)
+                    {
+                        throw new \RuntimeException('订单状态已变化，请重新发起支付');
+                    }
+                    if((int) round(((float) $locked_order['total_price']) * 100) !== (int) round(((float) $incoming_order['total_price']) * 100))
+                    {
+                        throw new \RuntimeException('支付金额与当前订单金额不一致，请重新发起支付');
+                    }
+                    $locked_total_price += (float) $locked_order['total_price'];
+                    $locked_order_list[] = $locked_order;
+                }
+                if((int) round($locked_total_price * 100) !== (int) round(((float) $locked_pay_log['total_price']) * 100))
+                {
+                    throw new \RuntimeException('支付单金额与当前订单金额不一致，请重新发起支付');
+                }
+                $params['order'] = $locked_order_list;
+                $order_total_price = $locked_total_price;
+            }
+
             // 先更新支付日志
             if($order_total_price > 0 && !empty($params['pay_log_data']) && !empty($params['payment']))
             {
@@ -1355,6 +1545,28 @@ class OrderService
             if(in_array('user_id', $keys) && isset($params['is_public']) && $params['is_public'] == 0)
             {
                 $user_list = UserService::GetUserViewInfo(array_column($data, 'user_id'));
+
+                // 管理后台订单导出需要显示邀请用户/分销员，避免影响前台用户信息
+                if(!empty($user_list) && is_array($user_list))
+                {
+                    $referrer_ids = [];
+                    $user_referrer_map = Db::name('User')->where(['id'=>array_column($data, 'user_id')])->column('referrer', 'id');
+                    foreach($user_referrer_map as $referrer_id)
+                    {
+                        if(!empty($referrer_id))
+                        {
+                            $referrer_ids[] = (int) $referrer_id;
+                        }
+                    }
+                    $referrer_list = empty($referrer_ids) ? [] : UserService::GetUserViewInfo(array_unique($referrer_ids));
+                    foreach($user_list as $user_id => &$user_item)
+                    {
+                        $referrer_id = isset($user_referrer_map[$user_id]) ? (int) $user_referrer_map[$user_id] : 0;
+                        $user_item['referrer_id'] = $referrer_id;
+                        $user_item['referrer_info'] = ($referrer_id > 0 && isset($referrer_list[$referrer_id])) ? $referrer_list[$referrer_id] : [];
+                    }
+                    unset($user_item);
+                }
             }
 
             // 支付方式名称

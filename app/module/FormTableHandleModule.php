@@ -11,6 +11,7 @@
 namespace app\module;
 
 use think\facade\Db;
+use app\service\QuerySafetyService;
 use app\service\FormTableService;
 use app\service\ResourcesService;
 use app\service\UserService;
@@ -125,6 +126,13 @@ class FormTableHandleModule
                     'data'          => &$this->form_data,
                 ]);
             }
+        }
+
+        // 旧版位置参数可能对应多个历史列顺序，拒绝猜测以免误筛选或误导出。
+        $request_error = $this->FormRequestKeysError();
+        if($request_error !== '')
+        {
+            return DataReturn($request_error, -1);
         }
 
         // 初始化
@@ -295,7 +303,8 @@ class FormTableHandleModule
     {
         // 排序
         $this->order_by['key'] = empty($this->out_params['fp_order_by_key']) ? (empty($this->out_params['order_by_key']) ? '' : $this->out_params['order_by_key']) : $this->out_params['fp_order_by_key'];
-        $this->order_by['val'] = empty($this->out_params['fp_order_by_val']) ? (empty($this->out_params['order_by_val']) ? '' : $this->out_params['order_by_val']) : $this->out_params['fp_order_by_val'];
+        $order_by_val = empty($this->out_params['fp_order_by_val']) ? (empty($this->out_params['order_by_val']) ? '' : $this->out_params['order_by_val']) : $this->out_params['fp_order_by_val'];
+        $this->order_by['val'] = QuerySafetyService::Direction($order_by_val);
         $this->order_by['field'] = '';
         $this->order_by['data'] = '';
 
@@ -1442,7 +1451,7 @@ class FormTableHandleModule
                     $temp = $temp_user_choice_fields[$v['key']]['data'];
 
                     // 是否存在设置不展示列表、则移除字段
-                    if(isset($temp['is_list']) && $temp['is_list'] == 0)
+                    if(isset($temp['is_list']) && $temp['is_list'] == 0 && !($this->is_export_excel && !empty($temp['is_export'])))
                     {
                         unset($this->user_fields[$k]);
                     }
@@ -1464,6 +1473,26 @@ class FormTableHandleModule
                 if(isset($v['view_type']) && $v['view_type'] == 'operate')
                 {
                     $data[] = $v;
+                }
+            }
+
+            // 导出字段不受后台列表字段选择影响，避免历史字段偏好把订单号等导出列排除。
+            if($this->is_export_excel)
+            {
+                $existing_keys = [];
+                foreach($data as $item)
+                {
+                    if(isset($item['view_key']) && !is_array($item['view_key']))
+                    {
+                        $existing_keys[$item['view_key']] = true;
+                    }
+                }
+                foreach($this->form_data['form'] as $item)
+                {
+                    if(!empty($item['is_export']) && !empty($item['view_key']) && !is_array($item['view_key']) && empty($existing_keys[$item['view_key']]))
+                    {
+                        $data[] = $item;
+                    }
                 }
             }
 
@@ -1512,6 +1541,74 @@ class FormTableHandleModule
     public function FromMd5Key($module, $action)
     {
         $this->md5_key = md5($module.'\\'.$action);
+    }
+
+    /**
+     * 固定字段标识只对显式开启的表格生效，其他表格保留原位置协议。
+     */
+    public function FormFieldKeyPrefix($field, $index)
+    {
+        if(empty($this->form_data['base']['stable_request_keys']))
+        {
+            return 'f'.$index;
+        }
+        // 模块可能共享同一个查询字段 id，必须按视图身份区分，不能只用 form_name。
+        $identity = json_encode([$field['view_type'] ?? '', $field['view_key'] ?? ''], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return 'fs_'.md5($identity);
+    }
+
+    /**
+     * 在读取订单/导出前拦截无版本的位置参数和已失效的固定字段参数。
+     */
+    public function FormRequestKeysError()
+    {
+        if(empty($this->form_data['base']['stable_request_keys']))
+        {
+            return '';
+        }
+        $message = '订单列表配置已更新，旧筛选条件无法安全识别。请从“订单管理”重新打开页面，重新选择筛选条件或排序后再查询、导出。';
+        $filters = [];
+        $sorts = [];
+        foreach($this->form_data['form'] as $index=>$field)
+        {
+            $prefix = $this->FormFieldKeyPrefix($field, $index);
+            $type = $field['search_config']['form_type'] ?? '';
+            if($type !== '')
+            {
+                $suffixes = in_array($type, ['datetime', 'date']) ? ['_start', '_end'] : ($type === 'section' ? ['_min', '_max'] : ['']);
+                foreach($suffixes as $suffix)
+                {
+                    $filters[$prefix.'p'.$suffix] = true;
+                }
+            }
+            if(!empty($field['is_sort']))
+            {
+                $sorts[$prefix.'o'] = true;
+            }
+        }
+        foreach($this->out_params as $key=>$value)
+        {
+            if($value === '' || $value === null || $value === [])
+            {
+                continue;
+            }
+            if(preg_match('/^f\d+p(?:_(?:min|max|start|end))?$/D', (string) $key))
+            {
+                return $message;
+            }
+            if(strpos((string) $key, 'fs_') === 0 && !isset($filters[$key]))
+            {
+                return $message;
+            }
+            if(in_array($key, ['fp_order_by_key', 'order_by_key'], true))
+            {
+                if(!is_string($value) || preg_match('/^f\d+o$/D', $value) || (strpos($value, 'fs_') === 0 && !isset($sorts[$value])))
+                {
+                    return $message;
+                }
+            }
+        }
+        return '';
     }
 
     /**
@@ -1643,7 +1740,7 @@ class FormTableHandleModule
             }
 
             // 表单key
-            $fk = 'f'.$k;
+            $fk = $this->FormFieldKeyPrefix($v, $k);
 
             // 表单标识
             if($v['view_type'] == 'module')
@@ -1682,7 +1779,18 @@ class FormTableHandleModule
                     // 是否指定了数据/表单唯一key作为条件、则复制当前key数据
                     // 用于根据key指定条件（指定不宜使用这里拼接的key）
                     $params_where_name = empty($v['params_where_name']) ? $view_key : $v['params_where_name'];
-                    if(array_key_exists($params_where_name, $this->out_params) && $this->out_params[$params_where_name] !== null && $this->out_params[$params_where_name] !== '')
+                    if(!empty($this->form_data['base']['stable_request_keys']))
+                    {
+                        // 区间两端独立复制，避免只保留开始时间/最小金额而丢失上界。
+                        foreach(['', '_min', '_max', '_start', '_end'] as $suffix)
+                        {
+                            $alias = $params_where_name.$suffix;
+                            if(array_key_exists($alias, $this->out_params) && $this->out_params[$alias] !== null && $this->out_params[$alias] !== '')
+                            {
+                                $this->out_params[$form_key.$suffix] = $this->out_params[$alias];
+                            }
+                        }
+                    } elseif(array_key_exists($params_where_name, $this->out_params) && $this->out_params[$params_where_name] !== null && $this->out_params[$params_where_name] !== '')
                     {
                         $this->out_params[$form_key] = $this->out_params[$params_where_name];
                     // min字段
